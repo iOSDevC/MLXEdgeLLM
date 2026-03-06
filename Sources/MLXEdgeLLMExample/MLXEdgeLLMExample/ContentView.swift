@@ -3,16 +3,18 @@ import PhotosUI
 import MLXEdgeLLM
 
 // MARK: - View
-
 struct ContentView: View {
     @StateObject private var vm = DemoViewModel()
     @State private var pickerItem: PhotosPickerItem?
-
+    @State private var selectedVisionModel: VisionModel = .qwen35_0_8b
+    @State private var visionRunMode: VisionRunMode = .standard
+    @State private var selectedSpecializedModel: SpecializedVisionModel = .fastVLM_0_5b_fp16
+    
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
-
+                    
                     // Image picker
                     PhotosPicker(selection: $pickerItem, matching: .images) {
                         imagePreview
@@ -24,23 +26,57 @@ struct ContentView: View {
                             }
                         }
                     }
-
+                    
                     if let img = vm.selectedImage {
                         // Standard VLMs
-                        GroupBox("Standard VLMs") {
+                        GroupBox("TextModel VLMs") {
                             HStack {
-                                btn("Qwen3.5 0.8B\nOCR", .blue) { await vm.runVLM(model: .qwen35_0_8b, image: img) }
-                                btn("SmolVLM\n500M", .blue) { await vm.runVLM(model: .smolvlm_500m, image: img) }
-                                btn("Stream\nQwen3.5", .cyan) { await vm.runStreamVLM(model: .qwen35_0_8b, image: img) }
+                                VStack(spacing: 16) {
+                                    Picker("Model", selection: $selectedVisionModel) {
+                                        ForEach(VisionModel.allCases, id: \.self) { model in
+                                            Text(model.displayName).tag(model)
+                                        }
+                                    }
+                                    
+                                    Picker("Mode", selection: $visionRunMode) {
+                                        ForEach(VisionRunMode.allCases) { mode in
+                                            Text(mode.rawValue).tag(mode)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                                Spacer()
+                                btn("Run", .blue) {
+                                    switch visionRunMode {
+                                        case .standard:
+                                            await vm.runVLM(model: selectedVisionModel, image: img)
+                                        case .stream:
+                                            await vm.runStreamVLM(model: selectedVisionModel, image: img)
+                                    }
+                                }
+                                .frame(maxWidth: 120)
                             }
+                            .frame(maxWidth: .infinity)
                         }
-
+                        
                         // Specialized OCR
                         GroupBox("Specialized OCR") {
                             HStack {
-                                btn("⚡ FastVLM\n0.5B", .orange) { await vm.runSpecialized(model: .fastVLM_0_5b_fp16, image: img) }
-                                btn("📄 Granite\n258M", .purple) { await vm.runSpecialized(model: .graniteDocling_258m, image: img) }
+                                Picker("Model", selection: $selectedSpecializedModel) {
+                                    ForEach(SpecializedVisionModel.allCases, id: \.self) { model in
+                                        Text(specializedModelLabel(model)).tag(model)
+                                    }
+                                }
+                                
+                                Spacer()
+                                
+                                btn("Run OCR", .orange) {
+                                    await vm.runSpecialized(model: selectedSpecializedModel, image: img)
+                                }
+                                .frame(maxWidth: 120)
                             }
+                            .frame(maxWidth: .infinity)
+                            
                             Text("FastVLM: JSON · Granite: DocTags→Markdown")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
@@ -50,15 +86,15 @@ struct ContentView: View {
                             .font(.subheadline)
                             .padding()
                     }
-
+                    
                     // Text chat (no image needed)
-                    btn("💬 Text Chat (Qwen3 1.7B)", .green) { await vm.runTextChat() }
-
+                    btn("💬 Text Chat(Qwen3 1.7B)", .green) { await vm.runTextChat() }
+                    
                     // Progress
                     if !vm.progress.isEmpty {
                         Text(vm.progress).font(.caption).foregroundStyle(.secondary)
                     }
-
+                    
                     // Output
                     if !vm.output.isEmpty {
                         ScrollView {
@@ -67,7 +103,7 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(8)
                         }
-                        .frame(maxHeight: 240)
+                        .frame(maxHeight: .infinity)
                         .background(Color.outputBackground)
                         .cornerRadius(8)
                     }
@@ -78,7 +114,7 @@ struct ContentView: View {
             .overlay(loadingOverlay)
         }
     }
-
+    
     @ViewBuilder
     private var imagePreview: some View {
         if let img = vm.selectedImage {
@@ -96,7 +132,7 @@ struct ContentView: View {
                 }
         }
     }
-
+    
     @ViewBuilder
     private var loadingOverlay: some View {
         if vm.isLoading {
@@ -105,7 +141,7 @@ struct ContentView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
     }
-
+    
     private func btn(_ title: String, _ color: Color, action: @escaping () async -> Void) -> some View {
         Button { Task { await action() } } label: {
             Text(title)
@@ -118,6 +154,24 @@ struct ContentView: View {
                 .cornerRadius(8)
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.3)))
         }
+    }
+    
+    private func specializedModelLabel(_ model: SpecializedVisionModel) -> String {
+        switch model {
+            case .fastVLM_0_5b_fp16:
+                return "⚡ FastVLM 0.5B"
+            case .graniteDocling_258m:
+                return "📄 Granite 258M"
+            default:
+                return String(describing: model)
+        }
+    }
+    
+    private enum VisionRunMode: String, CaseIterable, Identifiable {
+        case standard = "Standard"
+        case stream = "Stream"
+        
+        var id: String { rawValue }
     }
 }
 
