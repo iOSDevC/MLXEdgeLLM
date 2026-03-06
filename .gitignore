@@ -4,3 +4,7 @@
 .build/
 
 .swiftpm/
+
+Sources/MLXEdgeLLMExample/MLXEdgeLLMExample.xcodeproj/xcuserdata/
+
+Sources/MLXEdgeLLMExample/MLXEdgeLLMExample.xcodeproj/project.xcworkspace/xcuserdata/

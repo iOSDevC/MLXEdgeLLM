@@ -6,17 +6,22 @@
 //
 
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import MLXEdgeLLM
+import Combine
 
 @MainActor
 final class DemoViewModel: ObservableObject {
     @Published var output: String = ""
     @Published var progress: String = ""
     @Published var isLoading = false
-    @Published var selectedImage: UIImage?
+    @Published var selectedImage: PlatformImage?
     
-    func runVLM(model: VisionModel, image: UIImage) async {
+    func runVLM(model: VisionModel, image: PlatformImage) async {
         startLoading()
         do {
             let vlm = try await MLXEdgeLLMVision(model: model) { p in
@@ -28,7 +33,7 @@ final class DemoViewModel: ObservableObject {
         stopLoading()
     }
     
-    func runSpecialized(model: SpecializedVisionModel, image: UIImage) async {
+    func runSpecialized(model: SpecializedVisionModel, image: PlatformImage) async {
         startLoading()
         do {
             let e = try await MLXEdgeLLMSpecialized(model: model) { p in
@@ -45,7 +50,7 @@ final class DemoViewModel: ObservableObject {
         stopLoading()
     }
     
-    func runStreamVLM(model: VisionModel, image: UIImage) async {
+    func runStreamVLM(model: VisionModel, image: PlatformImage) async {
         startLoading()
         output = ""
         do {

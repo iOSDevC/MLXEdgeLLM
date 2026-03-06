@@ -20,7 +20,7 @@ struct ContentView: View {
                     .onChange(of: pickerItem) { _, item in
                         Task {
                             if let data = try? await item?.loadTransferable(type: Data.self) {
-                                vm.selectedImage = UIImage(data: data)
+                                vm.selectedImage = PlatformImage(data: data)
                             }
                         }
                     }
@@ -68,7 +68,7 @@ struct ContentView: View {
                                 .padding(8)
                         }
                         .frame(maxHeight: 240)
-                        .background(Color(.systemGroupedBackground))
+                        .background(Color.outputBackground)
                         .cornerRadius(8)
                     }
                 }
@@ -82,7 +82,7 @@ struct ContentView: View {
     @ViewBuilder
     private var imagePreview: some View {
         if let img = vm.selectedImage {
-            Image(uiImage: img)
+            Image(platformImage: img)
                 .resizable().scaledToFit()
                 .frame(maxHeight: 200)
                 .cornerRadius(10)
