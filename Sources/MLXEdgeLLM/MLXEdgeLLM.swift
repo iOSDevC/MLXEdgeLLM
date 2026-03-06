@@ -1,125 +1,99 @@
 import Foundation
-import os
 
-// MARK: - MLXEdgeLLM (Text)
+// MARK: - MLXEdgeLLM  (public text API)
 
-/// API pública para inferencia de texto on-device usando MLX.
+/// On-device text LLM powered by mlx-swift-lm.
 ///
 /// ```swift
 /// // One-liner
 /// let reply = try await MLXEdgeLLM.chat("¿Cuánto gasté esta semana?")
 ///
-/// // Instancia reutilizable (recomendado para múltiples llamadas)
+/// // Reusable instance with streaming
 /// let llm = try await MLXEdgeLLM(model: .qwen3_1_7b)
-/// let reply = try await llm.chat("Explica este gasto")
+/// for try await token in llm.stream("Describe my expenses") {
+///     print(token, terminator: "")
+/// }
 /// ```
-@available(iOS 16.0, macOS 14.0, *)
-public actor MLXEdgeLLM {
-    
-    // MARK: - Options
-    
-    public struct Options: Sendable {
-        public var temperature: Float
-        public var maxTokens: Int
-        public var systemPrompt: String?
-        
-        public static let `default` = Options()
-        
-        public init(
-            temperature: Float = 0.7,
-            maxTokens: Int = 1024,
-            systemPrompt: String? = nil
-        ) {
-            self.temperature = temperature
-            self.maxTokens = maxTokens
-            self.systemPrompt = systemPrompt
-        }
-    }
-    
+@MainActor
+public final class MLXEdgeLLM {
+
     // MARK: - Properties
-    
+
     private let engine: TextEngine
-    private let options: Options
-    private let logger = Logger(subsystem: "ai.mlxedgellm", category: "MLXEdgeLLM")
-    
+    public let model: TextModel
+
     // MARK: - Init
-    
-    /// Inicializa y carga el modelo de texto.
-    /// El modelo se descarga de HuggingFace en el primer uso y se cachea localmente.
-    /// - Parameters:
-    ///   - model: Modelo de texto a usar (default: Qwen3 1.7B)
-    ///   - options: Opciones de generación
-    ///   - onProgress: Callback de progreso de descarga 0.0 → 1.0
+
+    /// Load a text model. Downloads on first use, then cached locally.
     public init(
-        model: TextModel = .default,
-        options: Options = .default,
-        onProgress: (@Sendable (Double) -> Void)? = nil
+        model: TextModel = .qwen3_1_7b,
+        onProgress: @escaping (String) -> Void = { _ in }
     ) async throws {
-        self.options = options
-        self.engine = TextEngine(modelId: model.rawValue)
+        self.model = model
+        self.engine = TextEngine(model: model)
         try await engine.load(onProgress: onProgress)
-        logger.info("MLXEdgeLLM ready: \(model.displayName)")
     }
-    
+
     // MARK: - Chat
-    
-    /// Envía un mensaje y obtiene la respuesta completa.
+
+    /// Send a message and get the full response.
     public func chat(
         _ prompt: String,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        maxTokens: Int = 1024
     ) async throws -> String {
         try await engine.generate(
             prompt: prompt,
-            systemPrompt: systemPrompt ?? options.systemPrompt,
-            maxTokens: options.maxTokens,
-            temperature: options.temperature
+            systemPrompt: systemPrompt,
+            maxTokens: maxTokens,
+            onToken: { _ in }
         )
     }
-    
-    // MARK: - Stream
-    
-    /// Streaming de tokens en tiempo real.
+
+    /// Stream tokens one by one as an `AsyncThrowingStream`.
     public func stream(
         _ prompt: String,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        maxTokens: Int = 1024
     ) -> AsyncThrowingStream<String, Error> {
-        engine.stream(
-            prompt: prompt,
-            systemPrompt: systemPrompt ?? options.systemPrompt,
-            maxTokens: options.maxTokens,
-            temperature: options.temperature
-        )
-    }
-    
-    // MARK: - Unload
-    
-    public func unload() async {
-        await engine.unload()
-    }
-}
+        // Capture self (MainActor-isolated) into a detached Task safely
+        let engine = self.engine
+        let sys = systemPrompt
 
-// MARK: - Static API
+        return AsyncThrowingStream { continuation in
+            Task { @MainActor in
+                do {
+                    var lastLength = 0
+                    _ = try await engine.generate(
+                        prompt: prompt,
+                        systemPrompt: sys,
+                        maxTokens: maxTokens
+                    ) { @MainActor partial in
+                        // Yield only the NEW characters since last callback
+                        let newText = String(partial.dropFirst(lastLength))
+                        lastLength = partial.count
+                        if !newText.isEmpty {
+                            continuation.yield(newText)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 
-@available(iOS 16.0, macOS 14.0, *)
-public extension MLXEdgeLLM {
-    
-    /// Chat en una sola línea.
-    static func chat(
+    // MARK: - Static convenience
+
+    /// One-liner text chat (loads model fresh each call — prefer instance for reuse).
+    public static func chat(
         _ prompt: String,
-        model: TextModel = .default,
-        options: Options = .default
+        model: TextModel = .qwen3_1_7b,
+        systemPrompt: String? = nil,
+        onProgress: @escaping (String) -> Void = { _ in }
     ) async throws -> String {
-        let llm = try await MLXEdgeLLM(model: model, options: options)
-        return try await llm.chat(prompt)
-    }
-    
-    /// Streaming en una sola línea.
-    static func stream(
-        _ prompt: String,
-        model: TextModel = .default,
-        options: Options = .default
-    ) async throws -> AsyncThrowingStream<String, Error> {
-        let llm = try await MLXEdgeLLM(model: model, options: options)
-        return await llm.stream(prompt)
+        let llm = try await MLXEdgeLLM(model: model, onProgress: onProgress)
+        return try await llm.chat(prompt, systemPrompt: systemPrompt)
     }
 }

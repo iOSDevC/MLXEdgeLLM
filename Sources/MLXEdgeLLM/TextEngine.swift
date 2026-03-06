@@ -2,120 +2,81 @@ import Foundation
 import MLX
 import MLXLLM
 import MLXLMCommon
-import os
 
-/// Motor de inferencia para modelos de texto usando MLXLLM.
-@available(iOS 16.0, macOS 14.0, *)
-actor TextEngine {
-    
-    // MARK: - Properties
-    
-    private var container: ModelContainer?
-    private let modelId: String
-    private let logger = Logger(subsystem: "ai.mlxedgellm", category: "TextEngine")
-    
+// MARK: - TextEngine
+
+/// Internal class (NOT actor) that wraps ModelContainer for text LLM inference.
+/// Uses @MainActor on the class so it's safe to call from SwiftUI, but the
+/// heavy inference runs inside modelContainer.perform { } which hops off MainActor.
+@MainActor
+final class TextEngine {
+
+    // MARK: - State
+
+    private var modelContainer: ModelContainer?
+    private let model: TextModel
+    private let generateParameters: GenerateParameters
+
     // MARK: - Init
-    
-    init(modelId: String) {
-        self.modelId = modelId
+
+    init(model: TextModel, temperature: Float = 0.7, maxTokens: Int = 1024) {
+        self.model = model
+        self.generateParameters = GenerateParameters(temperature: temperature)
     }
-    
+
     // MARK: - Load
-    
-    /// Carga el modelo desde HuggingFace (se cachea automáticamente en disco).
-    func load(onProgress: (@Sendable (Double) -> Void)? = nil) async throws {
-        logger.info("Loading text model: \(self.modelId)")
+
+    func load(onProgress: @escaping (String) -> Void) async throws {
+        guard modelContainer == nil else { return }
+
         MLX.GPU.set(cacheLimit: 32 * 1024 * 1024)
-        
-        let config = ModelConfiguration(id: modelId)
-        container = try await LLMModelFactory.shared.loadContainer(
+
+        let config = ModelConfiguration(id: model.rawValue)
+        modelContainer = try await LLMModelFactory.shared.loadContainer(
             configuration: config
         ) { progress in
-            onProgress?(progress.fractionCompleted)
+            let pct = Int(progress.fractionCompleted * 100)
+            Task { @MainActor in
+                onProgress("Downloading \(progress.fileCompletedCount)/\(progress.fileTotalCount) — \(pct)%")
+            }
         }
-        logger.info("Text model loaded: \(self.modelId)")
+        onProgress("Model ready.")
     }
-    
-    // MARK: - Generate
-    
-    /// Genera una respuesta completa.
+
+    // MARK: - Generate (full response, streaming via callback)
+
+    /// Generate a response, calling `onToken` with each partial text as it streams.
+    /// Returns the final complete text when done.
     func generate(
         prompt: String,
-        systemPrompt: String? = nil,
+        systemPrompt: String?,
         maxTokens: Int = 1024,
-        temperature: Float = 0.7
+        onToken: @escaping @MainActor (String) -> Void
     ) async throws -> String {
-        guard let container else { throw MLXEdgeLLMError.modelNotLoaded }
-        
+        guard let container = modelContainer else {
+            throw MLXEdgeLLMError.modelNotLoaded
+        }
+
+        var messages: [[String: String]] = []
+        if let sys = systemPrompt {
+            messages.append(["role": "system", "content": sys])
+        }
+        messages.append(["role": "user", "content": prompt])
+
         return try await container.perform { context in
-            var messages: [Message] = []
-            if let system = systemPrompt {
-                messages.append(.system(system))
-            }
-            messages.append(.user(prompt))
-            
-            let input = try context.processor.prepare(
-                input: UserInput(messages: messages)
+            let input = try await context.processor.prepare(
+                input: .init(messages: messages)
             )
-            let params = GenerateParameters(
-                temperature: temperature,
-                maxTokens: maxTokens
-            )
-            
-            var result = ""
-            for await token in context.model.generate(input: input, parameters: params) {
-                result += token
+            let result = try MLXLMCommon.generate(
+                input: input,
+                parameters: self.generateParameters,
+                context: context
+            ) { tokens in
+                let partial = context.tokenizer.decode(tokens: tokens)
+                Task { @MainActor in onToken(partial) }
+                return tokens.count >= maxTokens ? .stop : .more
             }
-            return result
+            return context.tokenizer.decode(tokens: result.tokens)
         }
-    }
-    
-    // MARK: - Stream
-    
-    /// Genera tokens de forma progresiva.
-    func stream(
-        prompt: String,
-        systemPrompt: String? = nil,
-        maxTokens: Int = 1024,
-        temperature: Float = 0.7
-    ) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                guard let container = self.container else {
-                    continuation.finish(throwing: MLXEdgeLLMError.modelNotLoaded)
-                    return
-                }
-                do {
-                    try await container.perform { context in
-                        var messages: [Message] = []
-                        if let system = systemPrompt {
-                            messages.append(.system(system))
-                        }
-                        messages.append(.user(prompt))
-                        
-                        let input = try context.processor.prepare(
-                            input: UserInput(messages: messages)
-                        )
-                        let params = GenerateParameters(
-                            temperature: temperature,
-                            maxTokens: maxTokens
-                        )
-                        for await token in context.model.generate(input: input, parameters: params) {
-                            continuation.yield(token)
-                        }
-                        continuation.finish()
-                    }
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Unload
-    
-    func unload() {
-        container = nil
-        logger.info("Text model unloaded")
     }
 }

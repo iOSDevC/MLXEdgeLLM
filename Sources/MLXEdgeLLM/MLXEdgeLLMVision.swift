@@ -1,164 +1,122 @@
 import Foundation
+
+#if canImport(UIKit)
 import UIKit
-import os
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
-// MARK: - MLXEdgeLLMVision
+// MARK: - MLXEdgeLLMVision  (public VLM API)
 
-/// API pública para análisis de imágenes on-device usando modelos VLM con MLX.
+/// On-device Vision-Language Model powered by mlx-swift-lm / MLXVLM.
 ///
 /// ```swift
-/// // Análisis de ticket (one-liner)
+/// // One-liner receipt extraction
 /// let json = try await MLXEdgeLLMVision.extractReceipt(ticketImage)
 ///
-/// // Instancia reutilizable (recomendado para múltiples llamadas)
-/// let vision = try await MLXEdgeLLMVision(model: .qwen35_0_8b)
-/// let json = try await vision.extractReceipt(ticketImage)
-/// let desc = try await vision.analyze("¿Qué hay en esta imagen?", image: foto)
+/// // Reusable instance
+/// let vlm = try await MLXEdgeLLMVision(model: .qwen35_0_8b)
+/// let json = try await vlm.extractReceipt(ticket)
+///
+/// // Streaming with image
+/// for try await token in vlm.stream("Describe this receipt", image: photo) {
+///     print(token, terminator: "")
+/// }
 /// ```
-@available(iOS 16.0, macOS 14.0, *)
-public actor MLXEdgeLLMVision {
-
-    // MARK: - Options
-
-    public struct Options: Sendable {
-        public var temperature: Float
-        public var maxTokens: Int
-
-        /// Opciones para OCR / extracción de datos — temperatura baja para resultados deterministas
-        public static let extraction = Options(temperature: 0.1, maxTokens: 512)
-
-        /// Opciones para chat visual conversacional
-        public static let chat = Options(temperature: 0.3, maxTokens: 1024)
-
-        public static let `default` = Options.extraction
-
-        public init(temperature: Float = 0.1, maxTokens: Int = 512) {
-            self.temperature = temperature
-            self.maxTokens = maxTokens
-        }
-    }
+@MainActor
+public final class MLXEdgeLLMVision {
 
     // MARK: - Properties
 
     private let engine: VisionEngine
-    private let options: Options
-    private let logger = Logger(subsystem: "ai.mlxedgellm", category: "MLXEdgeLLMVision")
+    public let model: VisionModel
 
     // MARK: - Init
 
-    /// Inicializa y carga el modelo VLM.
-    /// El modelo se descarga de HuggingFace en el primer uso y se cachea localmente (~1 GB para Qwen3.5 0.8B).
-    /// - Parameters:
-    ///   - model: Modelo VLM a usar (default: Qwen3.5 0.8B)
-    ///   - options: Opciones de generación
-    ///   - onProgress: Callback de progreso de descarga 0.0 → 1.0
     public init(
-        model: VisionModel = .default,
-        options: Options = .default,
-        onProgress: (@Sendable (Double) -> Void)? = nil
+        model: VisionModel = .qwen35_0_8b,
+        onProgress: @escaping (String) -> Void = { _ in }
     ) async throws {
-        self.options = options
-        self.engine = VisionEngine(modelId: model.rawValue)
+        self.model = model
+        self.engine = VisionEngine(model: model)
         try await engine.load(onProgress: onProgress)
-        logger.info("MLXEdgeLLMVision ready: \(model.displayName)")
     }
 
-    // MARK: - Analyze Image
+    // MARK: - Receipt Extraction
 
-    /// Analiza una imagen con un prompt de texto.
-    /// - Parameters:
-    ///   - prompt: Instrucción o pregunta sobre la imagen
-    ///   - image: Imagen a analizar
-    /// - Returns: Respuesta completa del modelo
-    public func analyze(_ prompt: String, image: UIImage) async throws -> String {
+    private static let receiptPrompt = """
+        You are a receipt OCR assistant. Extract all information from this receipt image \
+        and return a JSON object with keys: store, date (YYYY-MM-DD), \
+        items (array of {name, quantity, price}), subtotal, tax, total, currency. \
+        Respond ONLY with valid JSON, no markdown fences.
+        """
+
+    /// Extract structured receipt data (JSON string) from a receipt image.
+    public func extractReceipt(_ image: PlatformImage) async throws -> String {
         try await engine.generate(
-            prompt: prompt,
+            prompt: Self.receiptPrompt,
             image: image,
-            maxTokens: options.maxTokens,
-            temperature: options.temperature
+            maxTokens: 600,
+            onToken: { _ in }
         )
     }
 
-    // MARK: - Text Chat (sin imagen)
+    /// One-liner receipt extraction using default model.
+    public static func extractReceipt(
+        _ image: PlatformImage,
+        onProgress: @escaping (String) -> Void = { _ in }
+    ) async throws -> String {
+        let vlm = try await MLXEdgeLLMVision(onProgress: onProgress)
+        return try await vlm.extractReceipt(image)
+    }
 
-    /// Chat de texto puro sin imagen.
-    public func chat(_ prompt: String) async throws -> String {
+    // MARK: - Generic analyze
+
+    /// Ask a custom question about an image (or text-only if image is nil).
+    public func analyze(
+        _ prompt: String,
+        image: PlatformImage? = nil,
+        maxTokens: Int = 800
+    ) async throws -> String {
         try await engine.generate(
             prompt: prompt,
-            image: nil,
-            maxTokens: options.maxTokens,
-            temperature: options.temperature
+            image: image,
+            maxTokens: maxTokens,
+            onToken: { _ in }
         )
     }
 
     // MARK: - Streaming
 
-    /// Analiza una imagen con streaming de tokens.
+    /// Stream tokens for a vision + text query.
     public func stream(
         _ prompt: String,
-        image: UIImage? = nil
+        image: PlatformImage? = nil,
+        maxTokens: Int = 800
     ) -> AsyncThrowingStream<String, Error> {
-        engine.stream(
-            prompt: prompt,
-            image: image,
-            maxTokens: options.maxTokens,
-            temperature: options.temperature
-        )
-    }
+        let engine = self.engine
+        let img = image
 
-    // MARK: - Receipt Extraction
-
-    /// Extrae datos estructurados de un ticket de compra como JSON.
-    /// - Parameter image: Foto del ticket
-    /// - Returns: JSON con tienda, fecha, items y total
-    public func extractReceipt(_ image: UIImage) async throws -> String {
-        let prompt = """
-        Analyze this receipt and extract the information as JSON with this exact structure:
-        {
-          "store": "store name",
-          "date": "date in YYYY-MM-DD format",
-          "items": [
-            {"name": "product name", "quantity": 1, "price": 0.00}
-          ],
-          "subtotal": 0.00,
-          "tax": 0.00,
-          "total": 0.00,
-          "currency": "currency code (USD, MXN, EUR, etc.)"
+        return AsyncThrowingStream { continuation in
+            Task { @MainActor in
+                do {
+                    var lastLength = 0
+                    _ = try await engine.generate(
+                        prompt: prompt,
+                        image: img,
+                        maxTokens: maxTokens
+                    ) { @MainActor partial in
+                        let newText = String(partial.dropFirst(lastLength))
+                        lastLength = partial.count
+                        if !newText.isEmpty {
+                            continuation.yield(newText)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
-        Respond ONLY with the JSON, no additional text.
-        """
-        return try await analyze(prompt, image: image)
-    }
-
-    // MARK: - Unload
-
-    public func unload() async {
-        await engine.unload()
-    }
-}
-
-// MARK: - Static API (one-liners)
-
-@available(iOS 16.0, macOS 14.0, *)
-public extension MLXEdgeLLMVision {
-
-    /// Analiza una imagen en una sola línea.
-    static func analyze(
-        _ prompt: String,
-        image: UIImage,
-        model: VisionModel = .default,
-        options: Options = .default
-    ) async throws -> String {
-        let vision = try await MLXEdgeLLMVision(model: model, options: options)
-        return try await vision.analyze(prompt, image: image)
-    }
-
-    /// Extrae datos de un ticket en una sola línea.
-    static func extractReceipt(
-        _ image: UIImage,
-        model: VisionModel = .default
-    ) async throws -> String {
-        let vision = try await MLXEdgeLLMVision(model: model)
-        return try await vision.extractReceipt(image)
     }
 }

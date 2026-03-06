@@ -1,239 +1,192 @@
 import SwiftUI
-import MLXEdgeLLM
 import PhotosUI
+import MLXEdgeLLM
+
+@MainActor
+final class DemoViewModel: ObservableObject {
+    @Published var output: String = ""
+    @Published var progress: String = ""
+    @Published var isLoading = false
+    @Published var selectedImage: UIImage?
+
+    func runVLM(model: VisionModel, image: UIImage) async {
+        startLoading()
+        do {
+            let vlm = try await MLXEdgeLLMVision(model: model) { p in
+                Task { @MainActor in self.progress = p }
+            }
+            let result = try await vlm.extractReceipt(image)
+            output = "📋 \(model.displayName):\n\n\(result)"
+        } catch { output = "❌ \(error.localizedDescription)" }
+        stopLoading()
+    }
+
+    func runSpecialized(model: SpecializedVisionModel, image: UIImage) async {
+        startLoading()
+        do {
+            let e = try await MLXEdgeLLMSpecialized(model: model) { p in
+                Task { @MainActor in self.progress = p }
+            }
+            var result = try await e.extractDocument(image)
+            if model.outputsDocTags {
+                result = MLXEdgeLLMSpecialized.parseDocTags(result)
+                output = "📝 Granite → Markdown:\n\n\(result)"
+            } else {
+                output = "⚡ FastVLM JSON:\n\n\(result)"
+            }
+        } catch { output = "❌ \(error.localizedDescription)" }
+        stopLoading()
+    }
+
+    func runStreamVLM(model: VisionModel, image: UIImage) async {
+        startLoading()
+        output = ""
+        do {
+            let vlm = try await MLXEdgeLLMVision(model: model) { p in
+                Task { @MainActor in self.progress = p }
+            }
+            for try await token in vlm.stream("Describe this receipt in detail.", image: image) {
+                output += token
+            }
+        } catch { output = "❌ \(error.localizedDescription)" }
+        stopLoading()
+    }
+
+    func runTextChat() async {
+        startLoading()
+        do {
+            let llm = try await MLXEdgeLLM(model: .qwen3_1_7b) { p in
+                Task { @MainActor in self.progress = p }
+            }
+            output = ""
+            for try await token in llm.stream("¿Cuánto es el IVA en México y cómo aparece en tickets?") {
+                output += token
+            }
+        } catch { output = "❌ \(error.localizedDescription)" }
+        stopLoading()
+    }
+
+    private func startLoading() { isLoading = true; progress = "" }
+    private func stopLoading() { isLoading = false; progress = "" }
+}
+
+// MARK: - View
 
 struct ContentView: View {
-
-    // MARK: - State
-
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var selectedImage: UIImage?
-    @State private var output: String = ""
-    @State private var isLoading: Bool = false
-    @State private var downloadProgress: Double = 0
-    @State private var vision: MLXEdgeLLMVision?
-    @State private var modelReady: Bool = false
-
-    // MARK: - Body
+    @StateObject private var vm = DemoViewModel()
+    @State private var pickerItem: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            ScrollView {
+                VStack(spacing: 14) {
 
-                // Model status
-                modelStatusView
+                    // Image picker
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        imagePreview
+                    }
+                    .onChange(of: pickerItem) { _, item in
+                        Task {
+                            if let data = try? await item?.loadTransferable(type: Data.self) {
+                                vm.selectedImage = UIImage(data: data)
+                            }
+                        }
+                    }
 
-                // Image picker
-                imagePickerView
+                    if let img = vm.selectedImage {
+                        // Standard VLMs
+                        GroupBox("Standard VLMs") {
+                            HStack {
+                                btn("Qwen3.5 0.8B\nOCR", .blue) { await vm.runVLM(model: .qwen35_0_8b, image: img) }
+                                btn("SmolVLM\n500M", .blue) { await vm.runVLM(model: .smolvlm_500m, image: img) }
+                                btn("Stream\nQwen3.5", .cyan) { await vm.runStreamVLM(model: .qwen35_0_8b, image: img) }
+                            }
+                        }
 
-                // Selected image preview
-                if let image = selectedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal)
-                }
+                        // Specialized OCR
+                        GroupBox("Specialized OCR") {
+                            HStack {
+                                btn("⚡ FastVLM\n0.5B", .orange) { await vm.runSpecialized(model: .fastVLM_0_5b, image: img) }
+                                btn("📄 Granite\n258M", .purple) { await vm.runSpecialized(model: .graniteDocling_258m, image: img) }
+                            }
+                            Text("FastVLM: JSON · Granite: DocTags→Markdown")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Select a receipt or document image above")
+                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                            .padding()
+                    }
 
-                // Action buttons
-                actionButtonsView
+                    // Text chat (no image needed)
+                    btn("💬 Text Chat (Qwen3 1.7B)", .green) { await vm.runTextChat() }
 
-                // Output
-                outputView
+                    // Progress
+                    if !vm.progress.isEmpty {
+                        Text(vm.progress).font(.caption).foregroundStyle(.secondary)
+                    }
 
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("MLXEdgeLLM Demo")
-            .task {
-                await loadModel()
-            }
-        }
-    }
-
-    // MARK: - Subviews
-
-    private var modelStatusView: some View {
-        HStack {
-            Circle()
-                .fill(modelReady ? Color.green : Color.orange)
-                .frame(width: 10, height: 10)
-            if modelReady {
-                Text("Qwen3.5 0.8B — Ready")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if downloadProgress > 0 {
-                Text("Downloading model: \(Int(downloadProgress * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ProgressView(value: downloadProgress)
-                    .frame(width: 100)
-            } else {
-                Text("Loading model...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ProgressView()
-                    .scaleEffect(0.7)
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.quaternary, in: Capsule())
-    }
-
-    private var imagePickerView: some View {
-        PhotosPicker(
-            selection: $selectedPhoto,
-            matching: .images
-        ) {
-            Label(
-                selectedImage == nil ? "Select Receipt Image" : "Change Image",
-                systemImage: "photo.badge.plus"
-            )
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-            .foregroundStyle(.blue)
-        }
-        .onChange(of: selectedPhoto) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    selectedImage = image
-                    output = ""
-                }
-            }
-        }
-    }
-
-    private var actionButtonsView: some View {
-        VStack(spacing: 12) {
-            // Extract receipt
-            Button {
-                Task { await extractReceipt() }
-            } label: {
-                Label("Extract Receipt JSON", systemImage: "doc.text.magnifyingglass")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(canAnalyze ? Color.blue : Color.gray.opacity(0.3),
-                                in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(canAnalyze ? .white : .secondary)
-            }
-            .disabled(!canAnalyze)
-
-            // Free prompt
-            Button {
-                Task { await analyzeImage() }
-            } label: {
-                Label("Describe Image", systemImage: "eye")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(canAnalyze ? Color.purple.opacity(0.8) : Color.gray.opacity(0.3),
-                                in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(canAnalyze ? .white : .secondary)
-            }
-            .disabled(!canAnalyze)
-
-            // Text-only chat test
-            Button {
-                Task { await testTextChat() }
-            } label: {
-                Label("Test Text Chat", systemImage: "bubble.left")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(modelReady ? Color.green.opacity(0.8) : Color.gray.opacity(0.3),
-                                in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(modelReady ? .white : .secondary)
-            }
-            .disabled(!modelReady || isLoading)
-        }
-    }
-
-    private var outputView: some View {
-        Group {
-            if isLoading {
-                HStack {
-                    ProgressView()
-                    Text("Generating...")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-            } else if !output.isEmpty {
-                ScrollView {
-                    Text(output)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 300)
-            }
-        }
-    }
-
-    // MARK: - Computed
-
-    private var canAnalyze: Bool {
-        modelReady && selectedImage != nil && !isLoading
-    }
-
-    // MARK: - Actions
-
-    private func loadModel() async {
-        do {
-            vision = try await MLXEdgeLLMVision(
-                model: .qwen35_0_8b,
-                onProgress: { progress in
-                    Task { @MainActor in
-                        downloadProgress = progress
+                    // Output
+                    if !vm.output.isEmpty {
+                        ScrollView {
+                            Text(vm.output)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                        }
+                        .frame(maxHeight: 240)
+                        .background(Color(.systemGroupedBackground))
+                        .cornerRadius(8)
                     }
                 }
-            )
-            modelReady = true
-        } catch {
-            output = "❌ Failed to load model: \(error.localizedDescription)"
+                .padding()
+            }
+            .navigationTitle("MLXEdgeLLM")
+            .overlay(loadingOverlay)
         }
     }
 
-    private func extractReceipt() async {
-        guard let vision, let image = selectedImage else { return }
-        isLoading = true
-        output = ""
-        do {
-            output = try await vision.extractReceipt(image)
-        } catch {
-            output = "❌ Error: \(error.localizedDescription)"
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let img = vm.selectedImage {
+            Image(uiImage: img)
+                .resizable().scaledToFit()
+                .frame(maxHeight: 200)
+                .cornerRadius(10)
+        } else {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.1))
+                .frame(height: 120)
+                .overlay {
+                    Label("Tap to select image", systemImage: "photo.badge.plus")
+                        .foregroundStyle(.secondary)
+                }
         }
-        isLoading = false
     }
 
-    private func analyzeImage() async {
-        guard let vision, let image = selectedImage else { return }
-        isLoading = true
-        output = ""
-        do {
-            output = try await vision.analyze("Describe what you see in this image in detail.", image: image)
-        } catch {
-            output = "❌ Error: \(error.localizedDescription)"
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if vm.isLoading {
+            ProgressView()
+                .padding(20)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
-        isLoading = false
     }
 
-    private func testTextChat() async {
-        guard let vision else { return }
-        isLoading = true
-        output = ""
-        do {
-            output = try await vision.chat("Say hello and introduce yourself in one sentence.")
-        } catch {
-            output = "❌ Error: \(error.localizedDescription)"
+    private func btn(_ title: String, _ color: Color, action: @escaping () async -> Void) -> some View {
+        Button { Task { await action() } } label: {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.vertical, 6)
+                .background(color.opacity(0.12))
+                .foregroundStyle(color)
+                .cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.3)))
         }
-        isLoading = false
     }
 }
 
-#Preview {
-    ContentView()
-}
+#Preview { ContentView() }
