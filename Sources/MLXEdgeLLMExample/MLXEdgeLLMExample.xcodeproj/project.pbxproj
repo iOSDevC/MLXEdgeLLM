@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FE6C89012F5CE8740010027A /* MLXEdgeLLMDocs in Frameworks */ = {isa = PBXBuildFile; productRef = FE6C89002F5CE8740010027A /* MLXEdgeLLMDocs */; };
 		FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */; };
 		FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */; };
 		FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */ = {isa = PBXBuildFile; productRef = FED51C932F5B7B0600D5040F /* MLXEdgeLLM */; };
@@ -30,6 +31,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE6C89012F5CE8740010027A /* MLXEdgeLLMDocs in Frameworks */,
 				FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */,
 				FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */,
 				FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */,
@@ -88,6 +90,7 @@
 				FED51CA82F5B7BA500D5040F /* MLXEdgeLLM */,
 				FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */,
 				FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */,
+				FE6C89002F5CE8740010027A /* MLXEdgeLLMDocs */,
 			);
 			productName = MLXEdgeLLMExample;
 			productReference = FED51C5F2F5B7A7900D5040F /* MLXEdgeLLMExample.app */;
@@ -394,6 +397,11 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		FE6C89002F5CE8740010027A /* MLXEdgeLLMDocs */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;
+			productName = MLXEdgeLLMDocs;
+		};
 		FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;

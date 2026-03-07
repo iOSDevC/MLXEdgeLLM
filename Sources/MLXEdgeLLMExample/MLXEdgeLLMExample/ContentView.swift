@@ -3,6 +3,7 @@ import PhotosUI
 import MLXEdgeLLM
 import MLXEdgeLLMUI
 import MLXEdgeLLMVoice
+import MLXEdgeLLMDocs
 
 // MARK: - ContentView
 
@@ -18,6 +19,9 @@ struct ContentView: View {
                 .tabItem {
                     Label("Voice", systemImage: "mic.fill")
                 }
+            // Agregar en el TabView existente:
+            DocsTab()
+                .tabItem { Label("Docs", systemImage: "doc.text.magnifyingglass") }
             
             VisionTab()
                 .tabItem {

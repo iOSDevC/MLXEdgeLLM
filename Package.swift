@@ -9,18 +9,10 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
-        .library(
-            name: "MLXEdgeLLM",
-            targets: ["MLXEdgeLLM"]
-        ),
-        .library(
-            name: "MLXEdgeLLMUI",
-            targets: ["MLXEdgeLLMUI"]
-        ),
-        .library(
-            name: "MLXEdgeLLMVoice",
-            targets: ["MLXEdgeLLMVoice"]
-        ),
+        .library(name: "MLXEdgeLLM",      targets: ["MLXEdgeLLM"]),
+        .library(name: "MLXEdgeLLMUI",    targets: ["MLXEdgeLLMUI"]),
+        .library(name: "MLXEdgeLLMVoice", targets: ["MLXEdgeLLMVoice"]),
+        .library(name: "MLXEdgeLLMDocs",  targets: ["MLXEdgeLLMDocs"]),
     ],
     dependencies: [
         .package(
@@ -43,7 +35,10 @@ let package = Package(
         // MARK: - UI
         .target(
             name: "MLXEdgeLLMUI",
-            dependencies: ["MLXEdgeLLM"],
+            dependencies: [
+                "MLXEdgeLLM",
+                "MLXEdgeLLMVoice",   // enables VoiceTab inside ContentView
+            ],
             path: "Sources/MLXEdgeLLMUI"
         ),
         
@@ -55,6 +50,14 @@ let package = Package(
                 path: "Sources/MLXEdgeLLMVoice"
             ),
         
+        // MARK: - Docs (RAG)
+        // Uses only Apple frameworks (PDFKit) + network for embeddings API.
+            .target(
+                name: "MLXEdgeLLMDocs",
+                dependencies: ["MLXEdgeLLM"],
+                path: "Sources/MLXEdgeLLMDocs"
+            ),
+        
         // MARK: - Example App
         .target(
             name: "MLXEdgeLLMExample",
@@ -62,6 +65,7 @@ let package = Package(
                 "MLXEdgeLLM",
                 "MLXEdgeLLMUI",
                 "MLXEdgeLLMVoice",
+                "MLXEdgeLLMDocs",
             ],
             path: "Sources/MLXEdgeLLMExample"
         ),

@@ -33,6 +33,7 @@ Or in `Package.swift`:
 | `MLXEdgeLLM` | Core inference, models, conversation persistence |
 | `MLXEdgeLLMUI` | SwiftUI views and ViewModels for drop-in UI |
 | `MLXEdgeLLMVoice` | Full-duplex voice interface (STT + TTS), 100% local |
+| `MLXEdgeLLMDocs` | RAG document library — PDF, DOCX, text, images |
 
 ```swift
 // Core only
@@ -46,10 +47,15 @@ import MLXEdgeLLMUI
 import MLXEdgeLLM
 import MLXEdgeLLMVoice
 
+// Core + document RAG
+import MLXEdgeLLM
+import MLXEdgeLLMDocs
+
 // Everything
 import MLXEdgeLLM
 import MLXEdgeLLMUI
 import MLXEdgeLLMVoice
+import MLXEdgeLLMDocs
 ```
 
 ---
@@ -335,6 +341,134 @@ Add to your `Info.plist`:
 
 ---
 
+## Document Library (RAG)
+
+`MLXEdgeLLMDocs` provides a fully local Retrieval-Augmented Generation (RAG) pipeline. Index documents once, then ask questions in natural language. No API keys, no cloud services.
+
+### Supported formats
+
+| Format | Parser |
+|--------|--------|
+| `.pdf` | PDFKit (text extraction per page) |
+| `.docx` | ZIP + XML (no external dependencies) |
+| `.txt`, `.md`, `.markdown` | Plain text |
+| `.png`, `.jpg`, `.jpeg`, `.heic`, `.tiff` | MLX VLM OCR |
+
+### Retrieval pipeline
+
+```
+query → TF-IDF embed → FTS5 top-20 candidates → cosine re-rank top-5 → LLM
+```
+
+Two-stage hybrid search: FTS5 for fast keyword recall, cosine similarity for semantic precision. All vectors stored as BLOBs in SQLite — no external vector database required.
+
+### Embedding backend
+
+`AutoEmbeddingProvider` uses TF-IDF sparse embeddings with IDF weights built from the indexed corpus — 100% local, zero downloads, works on device and simulator. Designed to upgrade transparently to dense MLX embeddings when `mlx-swift-lm` exposes that API.
+
+### Quick start
+
+```swift
+import MLXEdgeLLM
+import MLXEdgeLLMDocs
+
+// 1. Configure once (e.g. in app startup)
+let llm      = try await MLXEdgeLLM.text(.qwen3_1_7b)
+let embedder = AutoEmbeddingProvider()
+
+let library = DocumentLibrary.shared
+await library.configure(embeddingProvider: embedder, llm: llm)
+try await library.open()
+
+// 2. Index documents — progress delivered on @MainActor
+try await library.add(url: pdfURL) { progress in
+    print(progress) // "Embedding MyDoc: 42%"
+}
+try await library.add(url: docxURL)
+try await library.add(url: imageURL)   // OCR via VLM
+
+// Rebuild TF-IDF weights after indexing
+await library.refreshCorpus()
+
+// 3. Ask questions
+let answer = try await library.ask("What is the contract amount?")
+print(answer.text)
+
+// 4. Inspect sources
+for source in answer.sources {
+    print("[\(source.documentTitle) p.\(source.pageNumber)] score: \(source.score)")
+    print(source.excerpt)
+}
+```
+
+### Stateful document chat
+
+```swift
+import MLXEdgeLLMDocs
+
+// DocumentChat maintains conversation history and cites sources per message
+let chat = DocumentChat(library: library, llm: llm)
+
+let reply1 = try await chat.send("What is the payment schedule?")
+let reply2 = try await chat.send("And the penalties for late payment?") // context-aware
+
+for msg in chat.messages {
+    print(msg.role, msg.text)
+    print(msg.sources.map { $0.documentTitle }) // cited documents
+}
+```
+
+### Advanced options
+
+```swift
+// Custom chunk size and overlap
+let library = DocumentLibrary(
+    chunkTargetTokens:    512,   // target tokens per chunk
+    chunkOverlapFraction: 0.1    // 10% overlap between chunks
+)
+
+// Ask with more context
+let answer = try await library.ask(
+    "Summarize the key obligations",
+    topK:             8,      // retrieve 8 chunks (default 5)
+    maxContextTokens: 4096,   // context budget for LLM
+    systemPrompt:     "You are a legal assistant. Be precise and cite page numbers."
+)
+
+// Manage library
+let docs = try await library.allDocuments()
+try await library.removeDocument(id: doc.id)
+```
+
+### Progress stages
+
+`onProgress` is delivered on the `@MainActor` and reports four stages:
+
+| Stage | Example message | Approx. % |
+|-------|----------------|-----------|
+| Parsing | `"Parsing MyDoc.pdf…"` | 5% |
+| Chunking | `"Chunking MyDoc…"` | 15% |
+| Embedding | `"Embedding MyDoc: 42%"` | 15–100% |
+| Done | `"'MyDoc' indexed ✓ (253 chunks)"` | 100% |
+
+### Drop-in tab
+
+Add `DocsTab` to any existing `TabView`:
+
+```swift
+import MLXEdgeLLMDocs
+
+TabView {
+    // ... existing tabs
+    DocsTab()
+        .tabItem { Label("Docs", systemImage: "doc.text.magnifyingglass") }
+}
+```
+
+`DocsTab` includes a file picker (multi-select), per-document progress bar with percentage, swipe-to-delete, and a full chat sheet with expandable source citations.
+
+---
+
 ## Prebuilt SwiftUI Interface
 
 `MLXEdgeLLMUI` provides a ready-to-use tabbed interface. Add `MLXEdgeLLMVoice` to unlock the Voice tab.
@@ -361,6 +495,7 @@ struct MyApp: App {
 | **OCR** | `MLXEdgeLLMUI` | Document and receipt extraction |
 | **Models** | `MLXEdgeLLMUI` | Browser showing all models and download status |
 | **Voice** | `MLXEdgeLLMVoice` | Full-duplex voice chat with auto language detection |
+| **Docs** | `MLXEdgeLLMDocs` | Document library and RAG chat |
 
 ---
 
@@ -424,10 +559,21 @@ MLXEdgeLLMVoice (optional)
 ├── VoiceChatView            →  Full voice chat UI
 └── VoiceTab                 →  Tab for MLXEdgeLLMUI ContentView
 
+MLXEdgeLLMDocs (optional)
+├── DocumentLibrary          →  add() · ask() · allDocuments() · refreshCorpus()
+├── DocumentParserDispatcher →  PDF (PDFKit) · DOCX (ZIP+XML) · TXT · Image (VLM OCR)
+├── DocumentChunker          →  sliding window · sentence boundaries · overlap
+├── AutoEmbeddingProvider    →  TF-IDF sparse (local, no download)
+│   └── TFIDFEmbeddingProvider  →  DJB2 hash buckets · IDF weights · cosine
+├── VectorStore              →  SQLite BLOB vectors · FTS5 pre-filter · cosine re-rank
+├── DocumentChat             →  stateful Q&A · source citations · ConversationStore
+└── DocsTab                  →  SwiftUI tab · file picker · progress bar · chat sheet
+
 Sources/
 ├── MLXEdgeLLM/
 ├── MLXEdgeLLMUI/
 ├── MLXEdgeLLMVoice/
+├── MLXEdgeLLMDocs/
 └── MLXEdgeLLMExample/
 
 All models download automatically on first use and are cached at:
