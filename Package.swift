@@ -17,6 +17,10 @@ let package = Package(
             name: "MLXEdgeLLMUI",
             targets: ["MLXEdgeLLMUI"]
         ),
+        .library(
+            name: "MLXEdgeLLMVoice",
+            targets: ["MLXEdgeLLMVoice"]
+        ),
     ],
     dependencies: [
         .package(
@@ -39,18 +43,25 @@ let package = Package(
         // MARK: - UI
         .target(
             name: "MLXEdgeLLMUI",
-            dependencies: [
-                "MLXEdgeLLM"
-            ],
+            dependencies: ["MLXEdgeLLM"],
             path: "Sources/MLXEdgeLLMUI"
         ),
         
+        // MARK: - Voice
+        // Uses only Apple frameworks (Speech, AVFoundation) — no extra deps.
+            .target(
+                name: "MLXEdgeLLMVoice",
+                dependencies: ["MLXEdgeLLM"],
+                path: "Sources/MLXEdgeLLMVoice"
+            ),
+        
         // MARK: - Example App
-        .executableTarget(
+        .target(
             name: "MLXEdgeLLMExample",
             dependencies: [
                 "MLXEdgeLLM",
-                "MLXEdgeLLMUI"
+                "MLXEdgeLLMUI",
+                "MLXEdgeLLMVoice",
             ],
             path: "Sources/MLXEdgeLLMExample"
         ),

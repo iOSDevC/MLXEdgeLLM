@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */; };
+		FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */; };
 		FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */ = {isa = PBXBuildFile; productRef = FED51C932F5B7B0600D5040F /* MLXEdgeLLM */; };
 		FED51CA92F5B7BA500D5040F /* MLXEdgeLLM in Frameworks */ = {isa = PBXBuildFile; productRef = FED51CA82F5B7BA500D5040F /* MLXEdgeLLM */; };
 /* End PBXBuildFile section */
@@ -29,6 +30,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */,
 				FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */,
 				FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */,
 				FED51CA92F5B7BA500D5040F /* MLXEdgeLLM in Frameworks */,
@@ -85,6 +87,7 @@
 				FED51C932F5B7B0600D5040F /* MLXEdgeLLM */,
 				FED51CA82F5B7BA500D5040F /* MLXEdgeLLM */,
 				FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */,
+				FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */,
 			);
 			productName = MLXEdgeLLMExample;
 			productReference = FED51C5F2F5B7A7900D5040F /* MLXEdgeLLMExample.app */;
@@ -276,6 +279,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan tickets and other images";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to capture your voice for the AI assistant.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used for voice input to the local AI assistant.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -323,6 +328,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan tickets and other images";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to capture your voice for the AI assistant.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used for voice input to the local AI assistant.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -391,6 +398,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;
 			productName = MLXEdgeLLMUI;
+		};
+		FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;
+			productName = MLXEdgeLLMVoice;
 		};
 		FED51C932F5B7B0600D5040F /* MLXEdgeLLM */ = {
 			isa = XCSwiftPackageProductDependency;

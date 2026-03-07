@@ -32,6 +32,7 @@ Or in `Package.swift`:
 |--------|----------|
 | `MLXEdgeLLM` | Core inference, models, conversation persistence |
 | `MLXEdgeLLMUI` | SwiftUI views and ViewModels for drop-in UI |
+| `MLXEdgeLLMVoice` | Full-duplex voice interface (STT + TTS), 100% local |
 
 ```swift
 // Core only
@@ -40,6 +41,15 @@ import MLXEdgeLLM
 // Core + prebuilt SwiftUI interface
 import MLXEdgeLLM
 import MLXEdgeLLMUI
+
+// Core + voice (STT → LLM → TTS pipeline)
+import MLXEdgeLLM
+import MLXEdgeLLMVoice
+
+// Everything
+import MLXEdgeLLM
+import MLXEdgeLLMUI
+import MLXEdgeLLMVoice
 ```
 
 ---
@@ -187,7 +197,7 @@ let conv = try await store.createConversation(model: .qwen3_1_7b, title: "Financ
 
 // Chat with automatic history — context window managed automatically
 let llm = try await MLXEdgeLLM.text(.qwen3_1_7b)
-let reply = try await llm.chat("What is 2+2?", in: conv.id)
+let reply  = try await llm.chat("What is 2+2?", in: conv.id)
 let reply2 = try await llm.chat("Why?", in: conv.id) // includes previous exchange
 
 // Streaming with history
@@ -216,42 +226,141 @@ try await llm.summarizeAndPrune(conversationID: conv.id)
 When a conversation exceeds the token budget, `summarizeAndPrune` uses the model itself to summarize older turns and replace them with a compact system-level summary — preserving semantic continuity without truncating abruptly.
 
 ```swift
-// Automatically called during chat if conversation exceeds 4096 tokens
+// Called automatically during chat if conversation exceeds 4096 tokens
 try await llm.summarizeAndPrune(
     conversationID: conv.id,
-    keepLastN: 10,        // always keep the 10 most recent turns
+    keepLastN: 10,         // always keep the 10 most recent turns
     maxContextTokens: 4096
 )
 ```
 
 ---
 
+## Voice Interface
+
+`MLXEdgeLLMVoice` provides a full-duplex voice pipeline using only Apple frameworks — no external dependencies, no network calls.
+
+```
+Microphone → SFSpeechRecognizer (on-device) → MLXEdgeLLM.stream() → AVSpeechSynthesizer
+```
+
+Sentences are streamed to TTS **while the LLM is still generating** — the assistant starts speaking after the first complete sentence, not after the full response.
+
+Language is detected automatically per utterance using `NLLanguageRecognizer` and mapped to the best available system voice with region (e.g. `"es"` → `"es-MX"`).
+
+### Drop-in button
+
+```swift
+import MLXEdgeLLMVoice
+
+// Minimal — manages its own VoiceSession internally
+VoiceButton(llm: llm)
+
+// With external session for full state control
+@StateObject var session = VoiceSession(llm: llm)
+
+VoiceButton(session: session)
+Text(session.transcript)  // live STT transcript
+Text(session.response)    // live LLM response
+```
+
+### Full voice chat view
+
+```swift
+import MLXEdgeLLMVoice
+
+// Complete UI: transcript bubble + response bubble + VoiceButton
+VoiceChatView(llm: llm)
+
+// With persistent conversation
+VoiceChatView(llm: llm, conversationID: conv.id)
+```
+
+### Manual pipeline control
+
+```swift
+import MLXEdgeLLMVoice
+
+let session = VoiceSession(llm: llm, conversationID: conv.id)
+
+// Request permissions once on launch
+let granted = await session.requestPermissions()
+
+// Start — silence detection triggers LLM automatically
+try await session.startListening()
+
+// Or stop manually
+await session.stopListening()
+
+// Interrupt TTS mid-sentence
+session.interrupt()
+
+// Cancel everything
+session.cancel()
+```
+
+### Configuration
+
+```swift
+var config = VoiceSession.Config()
+config.silenceThreshold     = 1.4    // seconds of silence before triggering LLM
+config.maxRecordingDuration = 30     // max recording time in seconds
+config.speakingRate         = 0.5    // TTS rate (0–1)
+config.maxTokens            = 512    // max LLM tokens per response
+config.systemPrompt         = "You are a helpful assistant. Be concise."
+
+let session = VoiceSession(llm: llm, config: config)
+```
+
+### VoiceSession States
+
+| State | Meaning |
+|-------|---------|
+| `.idle` | Ready, waiting for input |
+| `.listening` | Recording + live transcription |
+| `.thinking(partial:)` | LLM streaming, partial response available |
+| `.speaking(sentence:)` | TTS playing current sentence |
+| `.error(String)` | Something went wrong |
+
+### Required permissions
+
+Add to your `Info.plist`:
+
+```xml
+<key>NSSpeechRecognitionUsageDescription</key>
+<string>Used for voice input to the local AI assistant.</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>Used to capture your voice for the AI assistant.</string>
+```
+
+---
+
 ## Prebuilt SwiftUI Interface
 
-`MLXEdgeLLMUI` provides a ready-to-use tabbed interface with Text Chat, Vision, OCR, and a model browser.
+`MLXEdgeLLMUI` provides a ready-to-use tabbed interface. Add `MLXEdgeLLMVoice` to unlock the Voice tab.
 
 ```swift
 import SwiftUI
 import MLXEdgeLLMUI
+import MLXEdgeLLMVoice  // enables Voice tab
 
 @main
 struct MyApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView() // 4-tab interface, ready to use
+            ContentView()
         }
     }
 }
 ```
 
-Tabs included:
-
-| Tab | Description |
-|-----|-------------|
-| **Text** | Persistent multi-conversation chat with streaming |
-| **Vision** | Image analysis with standard and streaming modes |
-| **OCR** | Document and receipt extraction |
-| **Models** | Browser showing all models and download status |
+| Tab | Module | Description |
+|-----|--------|-------------|
+| **Text** | `MLXEdgeLLMUI` | Persistent multi-conversation chat with streaming |
+| **Vision** | `MLXEdgeLLMUI` | Image analysis with standard and streaming modes |
+| **OCR** | `MLXEdgeLLMUI` | Document and receipt extraction |
+| **Models** | `MLXEdgeLLMUI` | Browser showing all models and download status |
+| **Voice** | `MLXEdgeLLMVoice` | Full-duplex voice chat with auto language detection |
 
 ---
 
@@ -293,10 +402,10 @@ Add to your `.entitlements` file for models larger than 500 MB:
 ## Architecture
 
 ```
-MLXEdgeLLM (public API)
-├── MLXEdgeLLM.text()        →  TextEngine  →  MLXLLM
-├── MLXEdgeLLM.vision()      →  VisionEngine  →  MLXVLM
-├── MLXEdgeLLM.specialized() →  VisionEngine  →  MLXVLM
+MLXEdgeLLM (core)
+├── MLXEdgeLLM.text()        →  MLXEngine  →  MLXLLM
+├── MLXEdgeLLM.vision()      →  MLXEngine  →  MLXVLM
+├── MLXEdgeLLM.specialized() →  MLXEngine  →  MLXVLM
 ├── ConversationStore        →  SQLite (no external deps)
 └── MLXEdgeLLM+History       →  context window · auto-title · pruning
 
@@ -306,6 +415,20 @@ MLXEdgeLLMUI (optional)
 ├── VisionTab    →  VisionViewModel
 ├── OCRTab       →  OCRViewModel
 └── ModelsTab
+
+MLXEdgeLLMVoice (optional)
+├── VoiceSession             →  SFSpeechRecognizer (on-device STT)
+│                            →  MLXEdgeLLM.stream() + ConversationStore
+│                            →  AVSpeechSynthesizer (on-device TTS)
+├── VoiceButton              →  SwiftUI mic button with state animations
+├── VoiceChatView            →  Full voice chat UI
+└── VoiceTab                 →  Tab for MLXEdgeLLMUI ContentView
+
+Sources/
+├── MLXEdgeLLM/
+├── MLXEdgeLLMUI/
+├── MLXEdgeLLMVoice/
+└── MLXEdgeLLMExample/
 
 All models download automatically on first use and are cached at:
   ~/Library/Caches/models/<org>/<repo>/

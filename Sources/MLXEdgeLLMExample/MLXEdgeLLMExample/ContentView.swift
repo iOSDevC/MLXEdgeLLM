@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import MLXEdgeLLM
 import MLXEdgeLLMUI
+import MLXEdgeLLMVoice
 
 // MARK: - ContentView
 
@@ -11,6 +12,11 @@ struct ContentView: View {
             TextChatTab()
                 .tabItem {
                     Label("Text", systemImage: "text.bubble")
+                }
+            
+            VoiceTab()
+                .tabItem {
+                    Label("Voice", systemImage: "mic.fill")
                 }
             
             VisionTab()
