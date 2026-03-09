@@ -69,7 +69,7 @@ final class TextChatViewModel: ObservableObject {
         streamingText = ""
         
         do {
-            let llm = try await MLXEdgeLLM.text(model) { [weak self] p in self?.progress = p }
+            let llm = try await ModelCache.shared.text(model) { [weak self] p in self?.progress = p }
             progress = ""
             
             for try await token in llm.stream(prompt, in: convID, store: store) {
@@ -79,13 +79,11 @@ final class TextChatViewModel: ObservableObject {
             messages.append(ChatMessage(id: UUID(), role: .assistant, text: streamingText))
             streamingText = ""
             
-            // Auto-title after first user message
             if messages.filter({ $0.role == .user }).count == 1 {
                 try? await llm.autoTitle(conversationID: convID, store: store)
                 await loadConversations()
             }
             
-            // Prune long conversations
             try? await llm.summarizeAndPrune(conversationID: convID, store: store)
             
         } catch {
@@ -111,7 +109,7 @@ final class VisionViewModel: ObservableObject {
         output = ""
         
         do {
-            let vlm = try await MLXEdgeLLM.vision(model) { [weak self] p in
+            let vlm = try await ModelCache.shared.vision(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""
@@ -119,7 +117,6 @@ final class VisionViewModel: ObservableObject {
             switch mode {
                 case .standard:
                     output = try await vlm.analyze(prompt, image: image)
-                    
                 case .stream:
                     for try await token in vlm.streamVision(prompt, image: image) {
                         output += token
@@ -148,7 +145,7 @@ final class OCRViewModel: ObservableObject {
         output = ""
         
         do {
-            let ocr = try await MLXEdgeLLM.specialized(model) { [weak self] p in
+            let ocr = try await ModelCache.shared.specialized(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""

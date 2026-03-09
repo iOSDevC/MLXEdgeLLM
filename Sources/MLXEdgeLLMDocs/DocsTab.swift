@@ -6,8 +6,9 @@ import MLXEdgeLLM
 
 public struct DocsTab: View {
     @StateObject private var vm = DocsViewModel()
-    @State private var showFilePicker = false
-    @State private var showChat = false
+    @State private var showFilePicker  = false
+    @State private var showChat        = false
+    @State private var showExportSheet = false
     
     public init() {}
     
@@ -23,20 +24,24 @@ public struct DocsTab: View {
             .navigationTitle("Documents")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showFilePicker = true
-                    } label: {
+                    Button { showFilePicker = true } label: {
                         Image(systemName: "plus")
                     }
                     .disabled(vm.isIndexing || !vm.isReady)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showChat = true
-                    } label: {
+                    Button { showChat = true } label: {
                         Image(systemName: "bubble.left.and.bubble.right")
                     }
                     .disabled(vm.documents.isEmpty || !vm.isReady)
+                }
+                if !vm.documents.isEmpty {
+                    ToolbarItem(placement: .navigation) {
+                        Button { showExportSheet = true } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(vm.isExporting)
+                    }
                 }
             }
             .fileImporter(
@@ -52,6 +57,9 @@ public struct DocsTab: View {
                 if let chat = vm.documentChat {
                     DocumentChatSheet(chat: chat)
                 }
+            }
+            .sheet(isPresented: $showExportSheet) {
+                ExportSheet(vm: vm)
             }
             .task { await vm.setup() }
         }
@@ -85,13 +93,14 @@ public struct DocsTab: View {
     
     private var documentList: some View {
         List {
+            // Indexing progress
             if vm.isIndexing {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "doc.badge.gearshape")
                                 .foregroundStyle(.blue)
-                            Text(vm.indexingFile.isEmpty ? "Processing…" : vm.indexingFile)
+                            Text(vm.indexingFile.isEmpty ? "Processing..." : vm.indexingFile)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
                             Spacer()
@@ -110,9 +119,18 @@ public struct DocsTab: View {
                 }
             }
             
+            // Document list
             Section {
                 ForEach(vm.documents) { doc in
                     DocumentRow(document: doc)
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            Button {
+                                Task { await vm.exportSingle(document: doc) }
+                            } label: {
+                                Label("Export", systemImage: "square.and.arrow.up")
+                            }
+                            .tint(.blue)
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 Task { await vm.remove(document: doc) }
@@ -153,7 +171,7 @@ private struct DocumentRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text("\(document.chunkCount) chunks")
-                    Text("·")
+                    Text(".")
                     Text(document.indexedAt, style: .relative)
                 }
                 .font(.caption2)
@@ -163,26 +181,134 @@ private struct DocumentRow: View {
         .padding(.vertical, 2)
     }
     
-    private var ext: String {
-        document.url.pathExtension.lowercased()
-    }
+    private var ext: String { document.url.pathExtension.lowercased() }
     
     private var iconName: String {
         switch ext {
-            case "pdf":              return "doc.fill"
-            case "docx":             return "doc.richtext"
-            case "txt", "md", "markdown": return "doc.text"
+            case "pdf":                        return "doc.fill"
+            case "docx":                       return "doc.richtext"
+            case "txt", "md", "markdown":      return "doc.text"
             case "png", "jpg", "jpeg", "heic": return "photo"
-            default:                 return "doc"
+            default:                           return "doc"
         }
     }
     
     private var iconColor: Color {
         switch ext {
-            case "pdf":  return .red
-            case "docx": return .blue
+            case "pdf":       return .red
+            case "docx":      return .blue
             case "txt", "md": return .primary
-            default:     return .orange
+            default:          return .orange
+        }
+    }
+}
+
+// MARK: - ExportSheet
+
+struct ExportSheet: View {
+    @ObservedObject var vm: DocsViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var format: ExportFormat      = .jsonlGz
+    @State private var includeEmbeddings         = false
+    @State private var exportAll                 = true
+    @State private var selectedIDs: Set<UUID>    = []
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Format") {
+                    Picker("Format", selection: $format) {
+                        Text("JSONL.GZ").tag(ExportFormat.jsonlGz)
+                        Text("JSONL").tag(ExportFormat.jsonl)
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("Include embedding vectors", isOn: $includeEmbeddings)
+                }
+                
+                Section("Documents") {
+                    Toggle("Export all (\(vm.documents.count))", isOn: $exportAll)
+                    if !exportAll {
+                        ForEach(vm.documents) { doc in
+                            HStack {
+                                Image(systemName: selectedIDs.contains(doc.id)
+                                      ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedIDs.contains(doc.id) ? .blue : .secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(doc.title).font(.subheadline)
+                                    Text("\(doc.chunkCount) chunks")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if selectedIDs.contains(doc.id) { selectedIDs.remove(doc.id) }
+                                else { selectedIDs.insert(doc.id) }
+                            }
+                        }
+                    }
+                }
+                
+                if vm.isExporting {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text(vm.exportProgress)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
+                if !vm.exportedURLs.isEmpty {
+                    Section("Exported Files") {
+                        ForEach(vm.exportedURLs, id: \.self) { url in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(url.lastPathComponent)
+                                        .font(.subheadline)
+                                        .lineLimit(1)
+                                    if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                                        Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                ShareLink(item: url) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Export")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Export") {
+                        let ids = exportAll
+                        ? vm.documents.map(\.id)
+                        : Array(selectedIDs)
+                        Task {
+                            await vm.exportDocuments(
+                                ids:               ids,
+                                format:            format,
+                                includeEmbeddings: includeEmbeddings
+                            )
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(vm.isExporting || (!exportAll && selectedIDs.isEmpty))
+                }
+            }
         }
     }
 }
@@ -208,7 +334,7 @@ struct DocumentChatSheet: View {
                             if chat.isThinking {
                                 HStack {
                                     ProgressView()
-                                    Text("Searching documents…")
+                                    Text("Searching documents...")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     Spacer()
@@ -230,7 +356,7 @@ struct DocumentChatSheet: View {
                 Divider()
                 
                 HStack(spacing: 10) {
-                    TextField("Ask about your documents…", text: $prompt, axis: .vertical)
+                    TextField("Ask about your documents...", text: $prompt, axis: .vertical)
                         .lineLimit(1...4)
                         .padding(10)
                         .background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
@@ -288,13 +414,14 @@ private struct DocMessageBubble: View {
                 if message.role == .assistant { Spacer(minLength: 48) }
             }
             
-            // Source references
             if message.role == .assistant, !message.sources.isEmpty {
                 Button {
                     withAnimation(.spring(duration: 0.3)) { showSources.toggle() }
                 } label: {
                     Label(
-                        showSources ? "Hide sources" : "\(message.sources.count) source\(message.sources.count == 1 ? "" : "s")",
+                        showSources
+                        ? "Hide sources"
+                        : "\(message.sources.count) source\(message.sources.count == 1 ? "" : "s")",
                         systemImage: "doc.text.magnifyingglass"
                     )
                     .font(.caption)
@@ -324,7 +451,7 @@ private struct SourceCard: View {
             HStack {
                 Label(
                     source.pageNumber > 0
-                    ? "\(source.documentTitle) · p.\(source.pageNumber)"
+                    ? "\(source.documentTitle) p.\(source.pageNumber)"
                     : source.documentTitle,
                     systemImage: "doc.text"
                 )
@@ -348,27 +475,32 @@ private struct SourceCard: View {
 
 @MainActor
 final class DocsViewModel: ObservableObject {
-    @Published var documents:        [IndexedDocument] = []
-    @Published var isIndexing      = false
-    @Published var isReady         = false
-    @Published var progress        = ""
-    @Published var indexingFile    = ""      // filename currently being indexed
-    @Published var indexingProgress: Double = 0  // 0.0–1.0
+    @Published var documents:          [IndexedDocument] = []
+    @Published var isIndexing         = false
+    @Published var isReady            = false
+    @Published var isExporting        = false
+    @Published var progress           = ""
+    @Published var exportProgress     = ""
+    @Published var indexingFile       = ""
+    @Published var indexingProgress:  Double = 0
+    @Published var exportedURLs:      [URL] = []
     private(set) var documentChat: DocumentChat?
     
     private let library = DocumentLibrary.shared
     private let store   = ConversationStore.shared
     
+    // MARK: - Setup
+    
     func setup() async {
-        progress = "Loading model…"
+        progress = "Loading model..."
         do {
-            let llm = try await MLXEdgeLLM.text(.qwen3_1_7b) { [weak self] p in
-                Task { @MainActor [weak self] in
-                    self?.progress = p
-                }
+            // Reuse already-loaded models from other tabs via ModelCache
+            let llm = try await ModelCache.shared.text(.qwen3_1_7b) { [weak self] p in
+                Task { @MainActor [weak self] in self?.progress = p }
             }
-            let vlm = try await MLXEdgeLLM.specialized(.fastVLM_0_5b_fp16)
-            
+            let vlm = try await ModelCache.shared.specialized(.fastVLM_0_5b_fp16) { [weak self] p in
+                Task { @MainActor [weak self] in self?.progress = p }
+            }
             let embedder = AutoEmbeddingProvider()
             
             await library.configure(embeddingProvider: embedder, llm: llm, visionLLM: vlm)
@@ -378,12 +510,14 @@ final class DocsViewModel: ObservableObject {
             documents    = try await library.allDocuments()
             
             let backend = await embedder.backendName()
-            progress = "Ready · \(backend)"
+            progress = "Ready - \(backend)"
             isReady  = true
         } catch {
-            progress = "❌ \(error.localizedDescription)"
+            progress = "Error: \(error.localizedDescription)"
         }
     }
+    
+    // MARK: - Indexing
     
     func index(urls: [URL]) async {
         isIndexing = true
@@ -393,14 +527,13 @@ final class DocsViewModel: ObservableObject {
             do {
                 let doc = try await library.add(url: url) { [weak self] p in
                     self?.progress = p
-                    // Parse "Embedding Title: 42%" → 0.42
                     if let pct = Self.parsePercent(from: p) {
                         self?.indexingProgress = pct
                     } else if p.hasPrefix("Parsing") {
                         self?.indexingProgress = 0.05
                     } else if p.hasPrefix("Chunking") {
                         self?.indexingProgress = 0.15
-                    } else if p.contains("indexed ✓") {
+                    } else if p.contains("indexed") {
                         self?.indexingProgress = 1.0
                     }
                 }
@@ -409,7 +542,7 @@ final class DocsViewModel: ObservableObject {
                 }
                 await library.refreshCorpus()
             } catch {
-                progress = "❌ \(error.localizedDescription)"
+                progress = "Error: \(error.localizedDescription)"
             }
         }
         isIndexing       = false
@@ -418,23 +551,83 @@ final class DocsViewModel: ObservableObject {
         progress         = ""
     }
     
+    // MARK: - Export
+    
+    /// Quick export from swipe action — single document as JSONL.GZ.
+    func exportSingle(document: IndexedDocument) async {
+        isExporting    = true
+        exportProgress = "Exporting \(document.title)..."
+        do {
+            let dest = exportDirectory()
+            let url  = try await library.export(
+                documentID: document.id,
+                to:         dest,
+                format:     .jsonlGz
+            )
+            exportedURLs.insert(url, at: 0)
+            exportProgress = "Done: \(url.lastPathComponent)"
+        } catch {
+            exportProgress = "Error: \(error.localizedDescription)"
+        }
+        isExporting = false
+    }
+    
+    /// Batch export from ExportSheet.
+    func exportDocuments(
+        ids:               [UUID],
+        format:            ExportFormat,
+        includeEmbeddings: Bool
+    ) async {
+        guard !ids.isEmpty else { return }
+        isExporting   = true
+        exportedURLs  = []
+        let dest      = exportDirectory()
+        
+        for (i, id) in ids.enumerated() {
+            let title = documents.first(where: { $0.id == id })?.title ?? id.uuidString
+            exportProgress = "Exporting \(i + 1)/\(ids.count): \(title)..."
+            do {
+                let url = try await library.export(
+                    documentID:        id,
+                    to:                dest,
+                    format:            format,
+                    includeEmbeddings: includeEmbeddings
+                )
+                exportedURLs.append(url)
+            } catch {
+                exportProgress = "Error \(title): \(error.localizedDescription)"
+            }
+        }
+        
+        exportProgress = "\(exportedURLs.count) file\(exportedURLs.count == 1 ? "" : "s") exported"
+        isExporting    = false
+    }
+    
+    // MARK: - Delete
+    
     func remove(document: IndexedDocument) async {
         try? await library.removeDocument(id: document.id)
         documents.removeAll { $0.id == document.id }
     }
     
-    /// Extracts a 0.0–1.0 value from strings like "Embedding MyDoc: 42%"
+    // MARK: - Helpers
+    
+    private func exportDirectory() -> URL {
+        FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MLXEdgeLLMExports", isDirectory: true)
+    }
+    
     private static func parsePercent(from text: String) -> Double? {
         guard text.contains("%"),
               let range = text.range(of: #"(\d+)%"#, options: .regularExpression),
               let num = Double(text[range].dropLast())
         else { return nil }
-        // Embedding is 80% of total work (parsing=5%, chunking=10%, embedding=85%)
         return 0.15 + (num / 100.0) * 0.85
     }
 }
 
-// MARK: - Cross-platform colors (local to module)
+// MARK: - Cross-platform colors
 
 private extension Color {
     static var groupedBackground: Color {

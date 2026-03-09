@@ -112,7 +112,10 @@ public final class VoiceSession: NSObject, ObservableObject {
         guard speechStatus == .authorized else { return false }
 
         #if os(iOS)
-        return await AVAudioSession.sharedInstance().requestRecordPermission()
+        let granted = await withCheckedContinuation { cont in
+            AVAudioSession.sharedInstance().requestRecordPermission { cont.resume(returning: $0) }
+        }
+        return granted
         #else
         // macOS: handled via NSMicrophoneUsageDescription in Info.plist
         return true

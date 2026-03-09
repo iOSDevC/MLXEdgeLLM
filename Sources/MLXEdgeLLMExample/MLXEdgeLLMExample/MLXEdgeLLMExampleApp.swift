@@ -1,13 +1,13 @@
-// MLXEdgeLLMExample
-// Entry point — SwiftUI app dentro del package
-
 import SwiftUI
 
 @main
 struct MLXEdgeLLMExampleApp: App {
+    @StateObject private var appState = AppState()
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(appState)
         }
     }
 }

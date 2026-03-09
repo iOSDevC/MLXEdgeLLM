@@ -10,6 +10,7 @@
 		FE6C89012F5CE8740010027A /* MLXEdgeLLMDocs in Frameworks */ = {isa = PBXBuildFile; productRef = FE6C89002F5CE8740010027A /* MLXEdgeLLMDocs */; };
 		FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */; };
 		FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */ = {isa = PBXBuildFile; productRef = FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */; };
+		FED27F662F5F11CD007FE005 /* MLXEdgeLLMAppleIntelligence in Frameworks */ = {isa = PBXBuildFile; productRef = FED27F652F5F11CD007FE005 /* MLXEdgeLLMAppleIntelligence */; };
 		FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */ = {isa = PBXBuildFile; productRef = FED51C932F5B7B0600D5040F /* MLXEdgeLLM */; };
 		FED51CA92F5B7BA500D5040F /* MLXEdgeLLM in Frameworks */ = {isa = PBXBuildFile; productRef = FED51CA82F5B7BA500D5040F /* MLXEdgeLLM */; };
 /* End PBXBuildFile section */
@@ -34,6 +35,7 @@
 				FE6C89012F5CE8740010027A /* MLXEdgeLLMDocs in Frameworks */,
 				FE825F782F5CDF96006C054A /* MLXEdgeLLMVoice in Frameworks */,
 				FE825F152F5CC27D006C054A /* MLXEdgeLLMUI in Frameworks */,
+				FED27F662F5F11CD007FE005 /* MLXEdgeLLMAppleIntelligence in Frameworks */,
 				FED51C942F5B7B0600D5040F /* MLXEdgeLLM in Frameworks */,
 				FED51CA92F5B7BA500D5040F /* MLXEdgeLLM in Frameworks */,
 			);
@@ -91,6 +93,7 @@
 				FE825F142F5CC27D006C054A /* MLXEdgeLLMUI */,
 				FE825F772F5CDF96006C054A /* MLXEdgeLLMVoice */,
 				FE6C89002F5CE8740010027A /* MLXEdgeLLMDocs */,
+				FED27F652F5F11CD007FE005 /* MLXEdgeLLMAppleIntelligence */,
 			);
 			productName = MLXEdgeLLMExample;
 			productReference = FED51C5F2F5B7A7900D5040F /* MLXEdgeLLMExample.app */;
@@ -411,6 +414,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;
 			productName = MLXEdgeLLMVoice;
+		};
+		FED27F652F5F11CD007FE005 /* MLXEdgeLLMAppleIntelligence */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FED51CA72F5B7BA500D5040F /* XCLocalSwiftPackageReference "../../../MLXEdgeLLM" */;
+			productName = MLXEdgeLLMAppleIntelligence;
 		};
 		FED51C932F5B7B0600D5040F /* MLXEdgeLLM */ = {
 			isa = XCSwiftPackageProductDependency;

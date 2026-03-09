@@ -9,10 +9,11 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
-        .library(name: "MLXEdgeLLM",      targets: ["MLXEdgeLLM"]),
-        .library(name: "MLXEdgeLLMUI",    targets: ["MLXEdgeLLMUI"]),
-        .library(name: "MLXEdgeLLMVoice", targets: ["MLXEdgeLLMVoice"]),
-        .library(name: "MLXEdgeLLMDocs",  targets: ["MLXEdgeLLMDocs"]),
+        .library(name: "MLXEdgeLLM",                   targets: ["MLXEdgeLLM"]),
+        .library(name: "MLXEdgeLLMUI",                 targets: ["MLXEdgeLLMUI"]),
+        .library(name: "MLXEdgeLLMVoice",              targets: ["MLXEdgeLLMVoice"]),
+        .library(name: "MLXEdgeLLMDocs",               targets: ["MLXEdgeLLMDocs"]),
+        .library(name: "MLXEdgeLLMAppleIntelligence",  targets: ["MLXEdgeLLMAppleIntelligence"]),
     ],
     dependencies: [
         .package(
@@ -37,25 +38,35 @@ let package = Package(
             name: "MLXEdgeLLMUI",
             dependencies: [
                 "MLXEdgeLLM",
-                "MLXEdgeLLMVoice",   // enables VoiceTab inside ContentView
+                "MLXEdgeLLMVoice",
             ],
             path: "Sources/MLXEdgeLLMUI"
         ),
         
         // MARK: - Voice
-        // Uses only Apple frameworks (Speech, AVFoundation) — no extra deps.
-            .target(
-                name: "MLXEdgeLLMVoice",
-                dependencies: ["MLXEdgeLLM"],
-                path: "Sources/MLXEdgeLLMVoice"
-            ),
+        .target(
+            name: "MLXEdgeLLMVoice",
+            dependencies: ["MLXEdgeLLM"],
+            path: "Sources/MLXEdgeLLMVoice"
+        ),
         
         // MARK: - Docs (RAG)
-        // Uses only Apple frameworks (PDFKit) + network for embeddings API.
+        .target(
+            name: "MLXEdgeLLMDocs",
+            dependencies: ["MLXEdgeLLM"],
+            path: "Sources/MLXEdgeLLMDocs"
+        ),
+        
+        // MARK: - Apple Intelligence Agents
+        // Requires iOS 26+ / macOS 26+ with Apple Intelligence enabled.
+        // No dependency on MLXEdgeLLM — standalone module using FoundationModels.
             .target(
-                name: "MLXEdgeLLMDocs",
-                dependencies: ["MLXEdgeLLM"],
-                path: "Sources/MLXEdgeLLMDocs"
+                name: "MLXEdgeLLMAppleIntelligence",
+                dependencies: [],
+                path: "Sources/MLXEdgeLLMAppleIntelligence",
+                swiftSettings: [
+                    .enableUpcomingFeature("StrictConcurrency")
+                ]
             ),
         
         // MARK: - Example App
@@ -66,6 +77,7 @@ let package = Package(
                 "MLXEdgeLLMUI",
                 "MLXEdgeLLMVoice",
                 "MLXEdgeLLMDocs",
+                "MLXEdgeLLMAppleIntelligence",
             ],
             path: "Sources/MLXEdgeLLMExample"
         ),

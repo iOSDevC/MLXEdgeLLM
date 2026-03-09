@@ -12,31 +12,31 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 ///
 /// Vectors are stored as raw Float BLOBs in SQLite and loaded into RAM on demand.
 actor VectorStore {
-
+    
     // MARK: - Types
-
+    
     struct SearchResult {
         let chunk: DocumentChunk
         let score: Float
     }
-
+    
     // MARK: - State
-
+    
     private var db: OpaquePointer?
     private let dbURL: URL
-    /// In-memory cache: chunkID → embedding
-    private var embeddingCache: [UUID: [Float]] = [:]
+    /// In-memory cache: chunkID → embedding. Exposed for DocumentLibrary.export().
+    var embeddingCache: [UUID: [Float]] = [:]
     private var cacheLoaded = false
-
+    
     // MARK: - Init
-
+    
     init(directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.dbURL = directory.appendingPathComponent("vectors.sqlite")
     }
-
+    
     // MARK: - Lifecycle
-
+    
     func open() throws {
         guard db == nil else { return }
         guard sqlite3_open(dbURL.path, &db) == SQLITE_OK else {
@@ -44,16 +44,16 @@ actor VectorStore {
         }
         try migrate()
     }
-
+    
     func close() {
         if let db { sqlite3_close(db) }
         db = nil
         embeddingCache = [:]
         cacheLoaded = false
     }
-
+    
     // MARK: - Document management
-
+    
     func documentExists(id: UUID) throws -> Bool {
         try ensureOpen()
         let rows = try query(
@@ -62,7 +62,7 @@ actor VectorStore {
         ) { _ in true }
         return !rows.isEmpty
     }
-
+    
     func insertDocument(id: UUID, title: String, url: String, chunkCount: Int) throws {
         try ensureOpen()
         try exec(
@@ -70,7 +70,7 @@ actor VectorStore {
             bindings: [id.uuidString, title, url, chunkCount, iso(Date())]
         )
     }
-
+    
     func allDocuments() throws -> [(id: UUID, title: String, url: String, chunkCount: Int, indexedAt: Date)] {
         try ensureOpen()
         return try query(
@@ -88,7 +88,7 @@ actor VectorStore {
             return (id, title, url, count, date)
         }
     }
-
+    
     func deleteDocument(id: UUID) throws {
         try ensureOpen()
         try exec("DELETE FROM chunks WHERE document_id = ?;", bindings: [id.uuidString])
@@ -96,7 +96,17 @@ actor VectorStore {
         embeddingCache = [:]
         cacheLoaded = false
     }
-
+    
+    /// Returns all chunks for a specific document — used by DocumentExporter.
+    func chunksForDocument(id: UUID) throws -> [DocumentChunk] {
+        try ensureOpen()
+        return try query(
+            "SELECT id, document_id, document_title, page_number, text, token_estimate FROM chunks WHERE document_id = ? ORDER BY rowid;",
+            bindings: [id.uuidString],
+            map: rowToChunk
+        )
+    }
+    
     /// Returns the raw text of every chunk — used to rebuild TF-IDF corpus weights.
     func allChunkTexts() throws -> [String] {
         try ensureOpen()
@@ -104,9 +114,9 @@ actor VectorStore {
             sqlite3_column_text(stmt, 0).map { String(cString: $0) }
         }
     }
-
+    
     // MARK: - Chunk insertion
-
+    
     func insertChunks(_ chunks: [DocumentChunk]) throws {
         try ensureOpen()
         try exec("BEGIN TRANSACTION;")
@@ -138,35 +148,35 @@ actor VectorStore {
         // Invalidate in-memory cache so it reloads with new chunks
         cacheLoaded = false
     }
-
+    
     // MARK: - Hybrid Search
-
+    
     /// Two-stage retrieval: FTS5 candidates → cosine re-rank.
     func search(query: String, queryEmbedding: [Float], topK: Int = 5, ftsLimit: Int = 20) throws -> [SearchResult] {
         try ensureOpen()
         try loadEmbeddingCacheIfNeeded()
-
+        
         // Stage 1: FTS5 keyword candidates
         let candidates = try ftsCandidates(query: query, limit: ftsLimit)
-
+        
         guard !candidates.isEmpty else { return [] }
-
+        
         // Stage 2: cosine re-rank
         var scored: [SearchResult] = candidates.compactMap { chunk in
             guard let emb = embeddingCache[chunk.id], !emb.isEmpty else { return nil }
             let score = VectorMath.cosine(queryEmbedding, emb)
             return SearchResult(chunk: chunk, score: score)
         }
-
+        
         scored.sort { $0.score > $1.score }
         return Array(scored.prefix(topK))
     }
-
+    
     /// Pure cosine search (no FTS pre-filter) — used when FTS returns 0 results.
     func searchCosineOnly(queryEmbedding: [Float], topK: Int = 5) throws -> [SearchResult] {
         try ensureOpen()
         try loadEmbeddingCacheIfNeeded()
-
+        
         let allChunks = try loadAllChunks()
         var scored: [SearchResult] = allChunks.compactMap { chunk in
             guard let emb = embeddingCache[chunk.id], !emb.isEmpty else { return nil }
@@ -176,9 +186,9 @@ actor VectorStore {
         scored.sort { $0.score > $1.score }
         return Array(scored.prefix(topK))
     }
-
+    
     // MARK: - FTS Candidates
-
+    
     private func ftsCandidates(query: String, limit: Int) throws -> [DocumentChunk] {
         // Sanitize query for FTS5 (escape special chars)
         let safe = query
@@ -186,9 +196,9 @@ actor VectorStore {
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
             .joined(separator: " OR ")
-
+        
         guard !safe.isEmpty else { return [] }
-
+        
         return try self.query(
             """
             SELECT c.id, c.document_id, c.document_title, c.page_number, c.text, c.token_estimate
@@ -202,17 +212,18 @@ actor VectorStore {
             map: rowToChunk
         )
     }
-
+    
     private func loadAllChunks() throws -> [DocumentChunk] {
         try query(
             "SELECT id, document_id, document_title, page_number, text, token_estimate FROM chunks;",
             map: rowToChunk
         )
     }
-
+    
     // MARK: - Embedding cache
-
-    private func loadEmbeddingCacheIfNeeded() throws {
+    
+    /// Exposed for DocumentLibrary.export() — loads vectors into RAM if not already cached.
+    func loadEmbeddingCacheIfNeeded() throws {
         guard !cacheLoaded else { return }
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
@@ -230,9 +241,9 @@ actor VectorStore {
         }
         cacheLoaded = true
     }
-
+    
     // MARK: - Migrations
-
+    
     private func migrate() throws {
         try exec("""
             CREATE TABLE IF NOT EXISTS documents (
@@ -273,13 +284,13 @@ actor VectorStore {
             END;
             """)
     }
-
+    
     // MARK: - SQLite helpers
-
+    
     private func ensureOpen() throws {
         if db == nil { try open() }
     }
-
+    
     private func exec(_ sql: String, bindings: [Any] = []) throws {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
@@ -288,7 +299,7 @@ actor VectorStore {
         let rc = sqlite3_step(stmt)
         guard rc == SQLITE_DONE || rc == SQLITE_ROW else { throw dbError() }
     }
-
+    
     private func query<T>(
         _ sql: String,
         bindings: [Any] = [],
@@ -304,25 +315,25 @@ actor VectorStore {
         }
         return results
     }
-
+    
     private func bind(_ stmt: OpaquePointer?, values: [Any]) {
         for (i, value) in values.enumerated() {
             let idx = Int32(i + 1)
             switch value {
-            case let s as String:
-                sqlite3_bind_text(stmt, idx, s, -1, SQLITE_TRANSIENT)
-            case let n as Int:
-                sqlite3_bind_int64(stmt, idx, Int64(n))
-            case let d as Data:
-                d.withUnsafeBytes { ptr in
-                    sqlite3_bind_blob(stmt, idx, ptr.baseAddress, Int32(d.count), SQLITE_TRANSIENT)
-                }
-            default:
-                sqlite3_bind_null(stmt, idx)
+                case let s as String:
+                    sqlite3_bind_text(stmt, idx, s, -1, SQLITE_TRANSIENT)
+                case let n as Int:
+                    sqlite3_bind_int64(stmt, idx, Int64(n))
+                case let d as Data:
+                    d.withUnsafeBytes { ptr in
+                        sqlite3_bind_blob(stmt, idx, ptr.baseAddress, Int32(d.count), SQLITE_TRANSIENT)
+                    }
+                default:
+                    sqlite3_bind_null(stmt, idx)
             }
         }
     }
-
+    
     private func rowToChunk(_ stmt: OpaquePointer?) -> DocumentChunk? {
         guard let stmt else { return nil }
         guard
@@ -343,28 +354,28 @@ actor VectorStore {
         _ = tok  // already encoded in the struct
         return chunk
     }
-
+    
     // MARK: - Float BLOB helpers
-
+    
     private func floatsToData(_ floats: [Float]) -> Data {
         floats.withUnsafeBytes { Data($0) }
     }
-
+    
     private func dataToFloats(_ data: Data) -> [Float] {
         data.withUnsafeBytes { ptr in
             Array(ptr.bindMemory(to: Float.self))
         }
     }
-
+    
     // MARK: - Date
-
+    
     private let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
     private func iso(_ d: Date) -> String { isoFormatter.string(from: d) }
-
+    
     private func dbError() -> DocumentError {
         let msg = db.flatMap { sqlite3_errmsg($0) }.map { String(cString: $0) } ?? "unknown"
         return .embeddingFailed("SQLite: \(msg)")

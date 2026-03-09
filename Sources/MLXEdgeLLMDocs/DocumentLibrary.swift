@@ -18,7 +18,7 @@ public struct DocumentAnswer: Sendable {
     public let text: String
     /// Source chunks used to generate the answer, ranked by relevance.
     public let sources: [SourceReference]
-
+    
     public struct SourceReference: Sendable {
         public let documentTitle: String
         public let pageNumber: Int
@@ -49,22 +49,22 @@ public struct DocumentAnswer: Sendable {
 /// print(answer.sources.map { "[\($0.documentTitle) p.\($0.pageNumber)]" })
 /// ```
 public actor DocumentLibrary {
-
+    
     // MARK: - Singleton
-
+    
     public static let shared = DocumentLibrary()
-
+    
     // MARK: - Dependencies
-
+    
     private var embeddingProvider: (any EmbeddingProvider)?
     private var llm: MLXEdgeLLM?
     private var visionLLM: MLXEdgeLLM?
-
+    
     private let vectorStore: VectorStore
-    private let chunker: DocumentChunker
-
+    private let chunker:     DocumentChunker
+    
     // MARK: - Init
-
+    
     public init(
         directory: URL? = nil,
         chunkTargetTokens: Int = 512,
@@ -73,16 +73,16 @@ public actor DocumentLibrary {
         let base = directory ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MLXEdgeLLM/docs", isDirectory: true)
-
+        
         self.vectorStore = VectorStore(directory: base)
         self.chunker     = DocumentChunker(
             targetTokens:    chunkTargetTokens,
             overlapFraction: chunkOverlapFraction
         )
     }
-
+    
     // MARK: - Configuration
-
+    
     public func configure(
         embeddingProvider: any EmbeddingProvider,
         llm: MLXEdgeLLM,
@@ -92,19 +92,19 @@ public actor DocumentLibrary {
         self.llm               = llm
         self.visionLLM         = visionLLM
     }
-
+    
     // MARK: - Lifecycle
-
+    
     public func open() async throws {
         try await vectorStore.open()
     }
-
+    
     public func close() async {
         await vectorStore.close()
     }
-
+    
     // MARK: - Indexing
-
+    
     /// Index a document from a file URL. Safe to call multiple times — skips if already indexed.
     @discardableResult
     public func add(
@@ -114,25 +114,25 @@ public actor DocumentLibrary {
         guard let embedder = embeddingProvider else {
             throw DocumentError.libraryNotReady
         }
-
+        
         let docID = deterministicID(for: url)
-
+        
         // Skip if already indexed
         if try await vectorStore.documentExists(id: docID) {
             await onProgress("'\(url.lastPathComponent)' already indexed.")
             let docs = try await allDocuments()
             if let existing = docs.first(where: { $0.id == docID }) { return existing }
         }
-
+        
         // Parse
         await onProgress("Parsing \(url.lastPathComponent)…")
         let dispatcher = DocumentParserDispatcher(visionLLM: visionLLM)
         let parsed     = try await dispatcher.parse(url: url)
-
+        
         // Chunk
         await onProgress("Chunking \(parsed.title)…")
         var chunks = chunker.chunk(document: parsed, documentID: docID)
-
+        
         // Embed in batches of 50
         await onProgress("Embedding \(chunks.count) chunks…")
         let batchSize = 50
@@ -147,7 +147,7 @@ public actor DocumentLibrary {
             let pct = Int(Double(batchEnd) / Double(chunks.count) * 100)
             await onProgress("Embedding \(parsed.title): \(pct)%")
         }
-
+        
         // Persist
         try await vectorStore.insertDocument(
             id:         docID,
@@ -156,9 +156,9 @@ public actor DocumentLibrary {
             chunkCount: chunks.count
         )
         try await vectorStore.insertChunks(chunks)
-
+        
         await onProgress("'\(parsed.title)' indexed ✓ (\(chunks.count) chunks)")
-
+        
         return IndexedDocument(
             id:         docID,
             title:      parsed.title,
@@ -167,9 +167,9 @@ public actor DocumentLibrary {
             indexedAt:  Date()
         )
     }
-
+    
     // MARK: - Query
-
+    
     /// Ask a question against the entire document library.
     public func ask(
         _ question: String,
@@ -180,18 +180,18 @@ public actor DocumentLibrary {
         guard let embedder = embeddingProvider, let llm else {
             throw DocumentError.libraryNotReady
         }
-
+        
         // Embed query
         var queryVec = try await embedder.embed(question)
         VectorMath.normalize(&queryVec)
-
+        
         // Hybrid retrieval
         var results = try await vectorStore.search(
             query:          question,
             queryEmbedding: queryVec,
             topK:           topK
         )
-
+        
         // Fallback to pure cosine if FTS returned nothing
         if results.isEmpty {
             results = try await vectorStore.searchCosineOnly(
@@ -199,34 +199,34 @@ public actor DocumentLibrary {
                 topK:           topK
             )
         }
-
+        
         guard !results.isEmpty else {
             return DocumentAnswer(
                 text:    "No relevant information found in the indexed documents.",
                 sources: []
             )
         }
-
+        
         // Build context — respect token budget
         let context = buildContext(from: results, maxTokens: maxContextTokens)
-
+        
         // Compose prompt
         let sys = systemPrompt ?? """
             You are a helpful assistant. Answer questions based ONLY on the provided document context.
             If the answer is not in the context, say so clearly.
             Always cite the document title and page number when referencing specific information.
             """
-
+        
         let prompt = """
             Document context:
             \(context)
-
+            
             ---
             Question: \(question)
             """
-
+        
         let answer = try await llm.chat(prompt, systemPrompt: sys)
-
+        
         let sources = results.map { r in
             DocumentAnswer.SourceReference(
                 documentTitle: r.chunk.documentTitle,
@@ -235,12 +235,12 @@ public actor DocumentLibrary {
                 score:         r.score
             )
         }
-
+        
         return DocumentAnswer(text: answer, sources: sources)
     }
-
+    
     // MARK: - Library management
-
+    
     public func allDocuments() async throws -> [IndexedDocument] {
         try await vectorStore.allDocuments().map { row in
             IndexedDocument(
@@ -252,11 +252,54 @@ public actor DocumentLibrary {
             )
         }
     }
-
+    
     public func removeDocument(id: UUID) async throws {
         try await vectorStore.deleteDocument(id: id)
     }
-
+    
+    // MARK: - Export
+    
+    /// Export a single document's chunks to JSONL or JSONL.GZ.
+    ///
+    /// - Parameters:
+    ///   - documentID:        ID of the document to export.
+    ///   - destination:       Directory where the file will be written.
+    ///   - format:            `.jsonlGz` (default) or `.jsonl`.
+    ///   - includeEmbeddings: Include float vectors in each record (larger file).
+    /// - Returns: URL of the written file.
+    @discardableResult
+    public func export(
+        documentID:        UUID,
+        to destination:    URL,
+        format:            ExportFormat = .jsonlGz,
+        includeEmbeddings: Bool = false
+    ) async throws -> URL {
+        let docs = try await allDocuments()
+        guard let document = docs.first(where: { $0.id == documentID }) else {
+            throw StoreError.conversationNotFound(documentID)
+        }
+        
+        var chunks = try await vectorStore.chunksForDocument(id: documentID)
+        
+        if includeEmbeddings {
+            try await vectorStore.loadEmbeddingCacheIfNeeded()
+            let cache = await vectorStore.embeddingCache
+            for i in chunks.indices {
+                chunks[i].embedding = cache[chunks[i].id] ?? []
+            }
+        }
+        
+        return try DocumentExporter.export(
+            document:          document,
+            chunks:            chunks,
+            to:                destination,
+            format:            format,
+            includeEmbeddings: includeEmbeddings
+        )
+    }
+    
+    // MARK: - Corpus
+    
     /// Re-feeds all stored chunk texts into the embedding provider's corpus.
     /// Required for TFIDFEmbeddingProvider to have accurate IDF weights.
     public func refreshCorpus() async {
@@ -264,9 +307,9 @@ public actor DocumentLibrary {
         let texts = (try? await vectorStore.allChunkTexts()) ?? []
         await embedder.updateCorpus(texts: texts)
     }
-
+    
     // MARK: - Helpers
-
+    
     private func deterministicID(for url: URL) -> UUID {
         // UUID v5-style: hash the canonical path
         let path = url.standardizedFileURL.path
@@ -279,23 +322,23 @@ public actor DocumentLibrary {
             0x40, 0, 0, 0, 0, 0, 0, 0
         ))
     }
-
+    
     private func buildContext(from results: [VectorStore.SearchResult], maxTokens: Int) -> String {
         var lines:  [String] = []
         var tokens  = 0
-
+        
         for result in results {
             let chunk   = result.chunk
             let pageRef = chunk.pageNumber > 0 ? " (p. \(chunk.pageNumber))" : ""
             let header  = "[\(chunk.documentTitle)\(pageRef)]"
             let entry   = "\(header)\n\(chunk.text)"
             let entryTok = max(1, entry.count / 4)
-
+            
             guard tokens + entryTok <= maxTokens else { break }
             lines.append(entry)
             tokens += entryTok
         }
-
+        
         return lines.joined(separator: "\n\n---\n\n")
     }
 }
@@ -306,20 +349,20 @@ public actor DocumentLibrary {
 /// Maintains conversation history via ConversationStore.
 @MainActor
 public final class DocumentChat: ObservableObject {
-
+    
     // MARK: Published
-
+    
     @Published public private(set) var messages: [DocumentChatMessage] = []
     @Published public private(set) var isThinking = false
     @Published public private(set) var progress = ""
-
+    
     // MARK: Private
-
+    
     private let library: DocumentLibrary
     private let llm: MLXEdgeLLM
     private let store: ConversationStore
     private var conversationID: UUID?
-
+    
     public init(
         library: DocumentLibrary,
         llm: MLXEdgeLLM,
@@ -329,9 +372,9 @@ public final class DocumentChat: ObservableObject {
         self.llm     = llm
         self.store   = store
     }
-
+    
     // MARK: - Send
-
+    
     /// Send a question grounded in the document library.
     @discardableResult
     public func send(
@@ -341,9 +384,9 @@ public final class DocumentChat: ObservableObject {
         messages.append(DocumentChatMessage(role: .user, text: question))
         isThinking = true
         defer { isThinking = false }
-
+        
         let answer = try await library.ask(question, topK: topK)
-
+        
         // Persist to ConversationStore for history
         if conversationID == nil {
             let conv = try await store.createConversation(model: llm.model, title: "Document chat")
@@ -353,16 +396,16 @@ public final class DocumentChat: ObservableObject {
             try await store.appendTurn(Turn(conversationID: convID, role: .user,      content: question))
             try await store.appendTurn(Turn(conversationID: convID, role: .assistant, content: answer.text))
         }
-
+        
         messages.append(DocumentChatMessage(
             role:    .assistant,
             text:    answer.text,
             sources: answer.sources
         ))
-
+        
         return answer
     }
-
+    
     public func clear() {
         messages = []
     }
@@ -376,7 +419,7 @@ public struct DocumentChatMessage: Identifiable, Sendable {
     public let role: Role
     public let text: String
     public let sources: [DocumentAnswer.SourceReference]
-
+    
     init(role: Role, text: String, sources: [DocumentAnswer.SourceReference] = []) {
         self.role    = role
         self.text    = text

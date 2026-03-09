@@ -47,8 +47,18 @@ public struct TextChatTab: View {
                 .sheet(isPresented: $showConversations) {
                     ConversationListSheet(vm: vm, isPresented: $showConversations)
                 }
+                .onTapGesture {
+                    hidekeyboard()
+                }
         }
     }
+}
+
+@inline(__always)
+private func hidekeyboard() {
+#if os(iOS)
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+#endif
 }
 
 #Preview {
