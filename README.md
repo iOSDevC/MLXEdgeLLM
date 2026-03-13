@@ -1,4 +1,8 @@
-# MLXEdgeLLM
+<p align="center">
+  <img src="Docs/Media/logo.png" alt="AuraLocal" width="200">
+</p>
+
+# AuraLocal
 
 Lightweight on-device LLM & VLM Swift package for iOS/macOS, powered by MLX. Run Qwen3, Llama, Gemma, SmolVLM and other models locally — no API keys, no binary dependencies, fully private.
 
@@ -10,7 +14,7 @@ Lightweight on-device LLM & VLM Swift package for iOS/macOS, powered by MLX. Run
 - **Swift 6 concurrency** — all public APIs are `@MainActor`-isolated or `Sendable`, with `actor`-based stores (`ConversationStore`, `DocumentLibrary`, `VectorStore`) for data-race safety.
 - **OOM prevention** — adaptive memory budget based on `os_proc_available_memory()` (iOS) or physical RAM (macOS), with `DispatchSource` memory-pressure listeners that proactively evict LRU models before the OS kills the app.
 - **Hybrid RAG pipeline** — FTS5 keyword pre-filter (top-20) followed by Accelerate-powered cosine re-ranking (top-5), all stored in a single SQLite database with BLOB vectors. Zero external dependencies.
-- **Strict access control** — internal implementation details (`MLXEngine`, `ParsedDocument`, `DocumentExporter`, `LanguageDetector`) are hidden from the public API surface. Consumers use typed facades only.
+- **Strict access control** — internal implementation details (`AuraEngine`, `ParsedDocument`, `DocumentExporter`, `LanguageDetector`) are hidden from the public API surface. Consumers use typed facades only.
 
 ---
 
@@ -27,45 +31,45 @@ Lightweight on-device LLM & VLM Swift package for iOS/macOS, powered by MLX. Run
 Add via Swift Package Manager:
 
 ```
-https://github.com/iOSDevC/MLXEdgeLLM
+https://github.com/iOSDevC/AuraLocal
 ```
 
 Or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/iOSDevC/MLXEdgeLLM", branch: "main")
+.package(url: "https://github.com/iOSDevC/AuraLocal", branch: "main")
 ```
 
 ### Modules
 
 | Module | Contents |
 |--------|----------|
-| `MLXEdgeLLM` | Core inference, models, conversation persistence |
-| `MLXEdgeLLMUI` | SwiftUI views and ViewModels for drop-in UI |
-| `MLXEdgeLLMVoice` | Full-duplex voice interface (STT + TTS), 100% local |
-| `MLXEdgeLLMDocs` | RAG document library — PDF, DOCX, text, images |
+| `AuraCore` | Core inference, models, conversation persistence |
+| `AuraUI` | SwiftUI views and ViewModels for drop-in UI |
+| `AuraVoice` | Full-duplex voice interface (STT + TTS), 100% local |
+| `AuraDocs` | RAG document library — PDF, DOCX, text, images |
 
 ```swift
 // Core only
-import MLXEdgeLLM
+import AuraCore
 
 // Core + prebuilt SwiftUI interface
-import MLXEdgeLLM
-import MLXEdgeLLMUI
+import AuraCore
+import AuraUI
 
 // Core + voice (STT → LLM → TTS pipeline)
-import MLXEdgeLLM
-import MLXEdgeLLMVoice
+import AuraCore
+import AuraVoice
 
 // Core + document RAG
-import MLXEdgeLLM
-import MLXEdgeLLMDocs
+import AuraCore
+import AuraDocs
 
 // Everything
-import MLXEdgeLLM
-import MLXEdgeLLMUI
-import MLXEdgeLLMVoice
-import MLXEdgeLLMDocs
+import AuraCore
+import AuraUI
+import AuraVoice
+import AuraDocs
 ```
 
 ---
@@ -73,13 +77,13 @@ import MLXEdgeLLMDocs
 ## Text Chat
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 // One-liner
-let reply = try await MLXEdgeLLM.chat("¿Cuánto gasté esta semana?")
+let reply = try await AuraLocal.chat("¿Cuánto gasté esta semana?")
 
 // Reusable instance (loads model once — preferred for multiple calls)
-let llm = try await MLXEdgeLLM.text(.qwen3_1_7b) { progress in
+let llm = try await AuraLocal.text(.qwen3_1_7b) { progress in
     print(progress) // "Downloading Qwen3 1.7B: 42%"
 }
 let reply = try await llm.chat("Summarize my expenses")
@@ -113,14 +117,14 @@ let reply = try await llm.chat(
 ## Vision / Image Analysis
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 // One-liner receipt extraction
-let json = try await MLXEdgeLLM.extractDocument(receiptImage)
+let json = try await AuraLocal.extractDocument(receiptImage)
 // → {"store":"OXXO","date":"2026-03-06","items":[...],"total":125.50,"currency":"MXN"}
 
 // Reusable instance
-let vlm = try await MLXEdgeLLM.vision(.qwen35_0_8b) { print($0) }
+let vlm = try await AuraLocal.vision(.qwen35_0_8b) { print($0) }
 
 // Free-form image analysis
 let description = try await vlm.analyze("What items are on this receipt?", image: photo)
@@ -147,16 +151,16 @@ for try await token in vlm.streamVision("Describe this image", image: photo) {
 Specialized models optimized for receipts, invoices, and structured documents.
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 // FastVLM — outputs structured JSON
-let ocr = try await MLXEdgeLLM.specialized(.fastVLM_0_5b_fp16) { print($0) }
+let ocr = try await AuraLocal.specialized(.fastVLM_0_5b_fp16) { print($0) }
 let json = try await ocr.extractDocument(receiptImage)
 
 // Granite Docling — outputs DocTags, converted to Markdown
-let docOCR = try await MLXEdgeLLM.specialized(.graniteDocling_258m)
+let docOCR = try await AuraLocal.specialized(.graniteDocling_258m)
 let raw = try await docOCR.extractDocument(documentImage)
-let markdown = MLXEdgeLLM.parseDocTags(raw)
+let markdown = AuraLocal.parseDocTags(raw)
 ```
 
 ### Specialized Models
@@ -173,7 +177,7 @@ let markdown = MLXEdgeLLM.parseDocTags(raw)
 ## Receipt Scanner Example
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 struct ReceiptData: Codable {
     let store: String
@@ -192,7 +196,7 @@ struct ReceiptData: Codable {
 }
 
 func scanReceipt(_ image: PlatformImage) async throws -> ReceiptData {
-    let json = try await MLXEdgeLLM.extractDocument(image)
+    let json = try await AuraLocal.extractDocument(image)
     return try JSONDecoder().decode(ReceiptData.self, from: Data(json.utf8))
 }
 ```
@@ -204,7 +208,7 @@ func scanReceipt(_ image: PlatformImage) async throws -> ReceiptData {
 `ConversationStore` provides a SQLite-backed store (no external dependencies) for persisting chat history. The LLM automatically loads a context window of the most recent turns that fit within the token budget.
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 let store = ConversationStore.shared
 
@@ -212,7 +216,7 @@ let store = ConversationStore.shared
 let conv = try await store.createConversation(model: .qwen3_1_7b, title: "Finance assistant")
 
 // Chat with automatic history — context window managed automatically
-let llm = try await MLXEdgeLLM.text(.qwen3_1_7b)
+let llm = try await AuraLocal.text(.qwen3_1_7b)
 let reply  = try await llm.chat("What is 2+2?", in: conv.id)
 let reply2 = try await llm.chat("Why?", in: conv.id) // includes previous exchange
 
@@ -222,7 +226,7 @@ for try await token in llm.stream("Tell me more", in: conv.id) {
 }
 
 // One-liner (creates conversation automatically)
-let (reply, convID) = try await MLXEdgeLLM.chat("Hello", model: .qwen3_1_7b)
+let (reply, convID) = try await AuraLocal.chat("Hello", model: .qwen3_1_7b)
 
 // List all conversations
 let conversations = try await store.allConversations()
@@ -254,10 +258,10 @@ try await llm.summarizeAndPrune(
 
 ## Voice Interface
 
-`MLXEdgeLLMVoice` provides a full-duplex voice pipeline using only Apple frameworks — no external dependencies, no network calls.
+`AuraVoice` provides a full-duplex voice pipeline using only Apple frameworks — no external dependencies, no network calls.
 
 ```
-Microphone → SFSpeechRecognizer (on-device) → MLXEdgeLLM.stream() → AVSpeechSynthesizer
+Microphone → SFSpeechRecognizer (on-device) → AuraLocal.stream() → AVSpeechSynthesizer
 ```
 
 Sentences are streamed to TTS **while the LLM is still generating** — the assistant starts speaking after the first complete sentence, not after the full response.
@@ -267,7 +271,7 @@ Language is detected automatically per utterance using `NLLanguageRecognizer` an
 ### Drop-in button
 
 ```swift
-import MLXEdgeLLMVoice
+import AuraVoice
 
 // Minimal — manages its own VoiceSession internally
 VoiceButton(llm: llm)
@@ -283,7 +287,7 @@ Text(session.response)    // live LLM response
 ### Full voice chat view
 
 ```swift
-import MLXEdgeLLMVoice
+import AuraVoice
 
 // Complete UI: transcript bubble + response bubble + VoiceButton
 VoiceChatView(llm: llm)
@@ -295,7 +299,7 @@ VoiceChatView(llm: llm, conversationID: conv.id)
 ### Manual pipeline control
 
 ```swift
-import MLXEdgeLLMVoice
+import AuraVoice
 
 let session = VoiceSession(llm: llm, conversationID: conv.id)
 
@@ -353,7 +357,7 @@ Add to your `Info.plist`:
 
 ## Document Library (RAG)
 
-`MLXEdgeLLMDocs` provides a fully local Retrieval-Augmented Generation (RAG) pipeline. Index documents once, then ask questions in natural language. No API keys, no cloud services.
+`AuraDocs` provides a fully local Retrieval-Augmented Generation (RAG) pipeline. Index documents once, then ask questions in natural language. No API keys, no cloud services.
 
 ### Supported formats
 
@@ -379,11 +383,11 @@ Two-stage hybrid search: FTS5 for fast keyword recall, cosine similarity for sem
 ### Quick start
 
 ```swift
-import MLXEdgeLLM
-import MLXEdgeLLMDocs
+import AuraCore
+import AuraDocs
 
 // 1. Configure once (e.g. in app startup)
-let llm      = try await MLXEdgeLLM.text(.qwen3_1_7b)
+let llm      = try await AuraLocal.text(.qwen3_1_7b)
 let embedder = AutoEmbeddingProvider()
 
 let library = DocumentLibrary.shared
@@ -414,7 +418,7 @@ for source in answer.sources {
 ### Stateful document chat
 
 ```swift
-import MLXEdgeLLMDocs
+import AuraDocs
 
 // DocumentChat maintains conversation history and cites sources per message
 let chat = DocumentChat(library: library, llm: llm)
@@ -466,7 +470,7 @@ try await library.removeDocument(id: doc.id)
 Add `DocsTab` to any existing `TabView`:
 
 ```swift
-import MLXEdgeLLMDocs
+import AuraDocs
 
 TabView {
     // ... existing tabs
@@ -481,12 +485,12 @@ TabView {
 
 ## Prebuilt SwiftUI Interface
 
-`MLXEdgeLLMUI` provides a ready-to-use tabbed interface. Add `MLXEdgeLLMVoice` to unlock the Voice tab.
+`AuraUI` provides a ready-to-use tabbed interface. Add `AuraVoice` to unlock the Voice tab.
 
 ```swift
 import SwiftUI
-import MLXEdgeLLMUI
-import MLXEdgeLLMVoice  // enables Voice tab
+import AuraUI
+import AuraVoice  // enables Voice tab
 
 @main
 struct MyApp: App {
@@ -500,19 +504,19 @@ struct MyApp: App {
 
 | Tab | Module | Description |
 |-----|--------|-------------|
-| **Text** | `MLXEdgeLLMUI` | Persistent multi-conversation chat with streaming |
-| **Vision** | `MLXEdgeLLMUI` | Image analysis with standard and streaming modes |
-| **OCR** | `MLXEdgeLLMUI` | Document and receipt extraction |
-| **Models** | `MLXEdgeLLMUI` | Browser showing all models and download status |
-| **Voice** | `MLXEdgeLLMVoice` | Full-duplex voice chat with auto language detection |
-| **Docs** | `MLXEdgeLLMDocs` | Document library and RAG chat |
+| **Text** | `AuraUI` | Persistent multi-conversation chat with streaming |
+| **Vision** | `AuraUI` | Image analysis with standard and streaming modes |
+| **OCR** | `AuraUI` | Document and receipt extraction |
+| **Models** | `AuraUI` | Browser showing all models and download status |
+| **Voice** | `AuraVoice` | Full-duplex voice chat with auto language detection |
+| **Docs** | `AuraDocs` | Document library and RAG chat |
 
 ---
 
 ## Model Discovery
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 // Filtered collections — downloaded models sorted first
 let textModels        = Model.textModels
@@ -538,7 +542,7 @@ print(model.purpose)           // .text
 `ModelManager` is the recommended way to load models. It prevents redundant downloads, shares instances across tabs, and handles memory pressure automatically.
 
 ```swift
-import MLXEdgeLLM
+import AuraCore
 
 // Load from anywhere — returns cached instance if already loaded
 let llm = try await ModelManager.shared.load(.qwen3_1_7b)
@@ -586,11 +590,11 @@ Add to your `.entitlements` file for models larger than 500 MB:
 
 ## Concurrency Model
 
-MLXEdgeLLM is designed for Swift 6 strict concurrency:
+AuraLocal is designed for Swift 6 strict concurrency:
 
 | Type | Isolation | Rationale |
 |------|-----------|-----------|
-| `MLXEdgeLLM` | `@MainActor` | Wraps MLX callbacks that must fire on main thread |
+| `AuraLocal` | `@MainActor` | Wraps MLX callbacks that must fire on main thread |
 | `ModelManager` | `@MainActor` | `ObservableObject` publishing `@Published` state |
 | `ConversationStore` | `actor` | Serializes SQLite reads/writes without locks |
 | `DocumentLibrary` | `actor` | Coordinates parsing, embedding, and vector store |
@@ -606,29 +610,29 @@ All streaming APIs use `AsyncThrowingStream` to bridge MLX's callback-based infe
 ## Architecture
 
 ```
-MLXEdgeLLM (core)
-├── MLXEdgeLLM.text()        →  MLXEngine  →  MLXLLM
-├── MLXEdgeLLM.vision()      →  MLXEngine  →  MLXVLM
-├── MLXEdgeLLM.specialized() →  MLXEngine  →  MLXVLM
-├── ConversationStore        →  SQLite (no external deps)
-└── MLXEdgeLLM+History       →  context window · auto-title · pruning
+AuraCore
+├── AuraLocal.text()        →  AuraEngine  →  MLXLLM
+├── AuraLocal.vision()      →  AuraEngine  →  MLXVLM
+├── AuraLocal.specialized() →  AuraEngine  →  MLXVLM
+├── ConversationStore      →  SQLite (no external deps)
+└── AuraLocal+History       →  context window · auto-title · pruning
 
-MLXEdgeLLMUI (optional)
+AuraUI (optional)
 ├── ContentView  (TabView)
 ├── TextChatTab  →  TextChatViewModel  →  ConversationStore
 ├── VisionTab    →  VisionViewModel
 ├── OCRTab       →  OCRViewModel
 └── ModelsTab
 
-MLXEdgeLLMVoice (optional)
+AuraVoice (optional)
 ├── VoiceSession             →  SFSpeechRecognizer (on-device STT)
-│                            →  MLXEdgeLLM.stream() + ConversationStore
+│                            →  AuraLocal.stream() + ConversationStore
 │                            →  AVSpeechSynthesizer (on-device TTS)
 ├── VoiceButton              →  SwiftUI mic button with state animations
 ├── VoiceChatView            →  Full voice chat UI
-└── VoiceTab                 →  Tab for MLXEdgeLLMUI ContentView
+└── VoiceTab                 →  Tab for AuraUI ContentView
 
-MLXEdgeLLMDocs (optional)
+AuraDocs (optional)
 ├── DocumentLibrary          →  add() · ask() · allDocuments() · refreshCorpus()
 ├── DocumentParserDispatcher →  PDF (PDFKit) · DOCX (ZIP+XML) · TXT · Image (VLM OCR)
 ├── DocumentChunker          →  sliding window · sentence boundaries · overlap
@@ -639,11 +643,11 @@ MLXEdgeLLMDocs (optional)
 └── DocsTab                  →  SwiftUI tab · file picker · progress bar · chat sheet
 
 Sources/
-├── MLXEdgeLLM/
-├── MLXEdgeLLMUI/
-├── MLXEdgeLLMVoice/
-├── MLXEdgeLLMDocs/
-└── MLXEdgeLLMExample/
+├── AuraCore/
+├── AuraUI/
+├── AuraVoice/
+├── AuraDocs/
+└── AuraExample/
 
 All models download automatically on first use and are cached at:
   ~/Library/Caches/models/<org>/<repo>/

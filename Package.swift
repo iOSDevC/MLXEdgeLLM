@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "MLXEdgeLLM",
+    name: "AuraLocal",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
         .visionOS(.v1)
     ],
     products: [
-        .library(name: "MLXEdgeLLM",                   targets: ["MLXEdgeLLM"]),
-        .library(name: "MLXEdgeLLMUI",                 targets: ["MLXEdgeLLMUI"]),
-        .library(name: "MLXEdgeLLMVoice",              targets: ["MLXEdgeLLMVoice"]),
-        .library(name: "MLXEdgeLLMDocs",               targets: ["MLXEdgeLLMDocs"]),
-        .library(name: "MLXEdgeLLMAppleIntelligence",  targets: ["MLXEdgeLLMAppleIntelligence"]),
+        .library(name: "AuraCore",              targets: ["AuraCore"]),
+        .library(name: "AuraUI",                targets: ["AuraUI"]),
+        .library(name: "AuraVoice",             targets: ["AuraVoice"]),
+        .library(name: "AuraDocs",              targets: ["AuraDocs"]),
+        .library(name: "AuraAppleIntelligence", targets: ["AuraAppleIntelligence"]),
     ],
     dependencies: [
         .package(
@@ -24,70 +24,70 @@ let package = Package(
     targets: [
         // MARK: - Core
         .target(
-            name: "MLXEdgeLLM",
+            name: "AuraCore",
             dependencies: [
                 .product(name: "MLXVLM",      package: "mlx-swift-lm"),
                 .product(name: "MLXLLM",      package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             ],
-            path: "Sources/MLXEdgeLLM"
+            path: "Sources/AuraCore"
         ),
-        
+
         // MARK: - UI
         .target(
-            name: "MLXEdgeLLMUI",
+            name: "AuraUI",
             dependencies: [
-                "MLXEdgeLLM",
-                "MLXEdgeLLMVoice",
+                "AuraCore",
+                "AuraVoice",
             ],
-            path: "Sources/MLXEdgeLLMUI"
+            path: "Sources/AuraUI"
         ),
-        
+
         // MARK: - Voice
         .target(
-            name: "MLXEdgeLLMVoice",
-            dependencies: ["MLXEdgeLLM"],
-            path: "Sources/MLXEdgeLLMVoice"
+            name: "AuraVoice",
+            dependencies: ["AuraCore"],
+            path: "Sources/AuraVoice"
         ),
-        
+
         // MARK: - Docs (RAG)
         .target(
-            name: "MLXEdgeLLMDocs",
-            dependencies: ["MLXEdgeLLM"],
-            path: "Sources/MLXEdgeLLMDocs"
+            name: "AuraDocs",
+            dependencies: ["AuraCore"],
+            path: "Sources/AuraDocs"
         ),
-        
+
         // MARK: - Apple Intelligence Agents
         // Requires iOS 26+ / macOS 26+ with Apple Intelligence enabled.
-        // No dependency on MLXEdgeLLM — standalone module using FoundationModels.
+        // No dependency on AuraCore — standalone module using FoundationModels.
             .target(
-                name: "MLXEdgeLLMAppleIntelligence",
+                name: "AuraAppleIntelligence",
                 dependencies: [],
-                path: "Sources/MLXEdgeLLMAppleIntelligence",
+                path: "Sources/AuraAppleIntelligence",
                 swiftSettings: [
                     .enableUpcomingFeature("StrictConcurrency")
                 ]
             ),
-        
+
         // MARK: - Example App
         .target(
-            name: "MLXEdgeLLMExample",
+            name: "AuraExample",
             dependencies: [
-                "MLXEdgeLLM",
-                "MLXEdgeLLMUI",
-                "MLXEdgeLLMVoice",
-                "MLXEdgeLLMDocs",
-                "MLXEdgeLLMAppleIntelligence",
+                "AuraCore",
+                "AuraUI",
+                "AuraVoice",
+                "AuraDocs",
+                "AuraAppleIntelligence",
             ],
-            path: "Sources/MLXEdgeLLMExample",
+            path: "Sources/AuraExample",
             exclude: ["Package.swift"]
         ),
-        
+
         // MARK: - Tests
         .testTarget(
-            name: "MLXEdgeLLMTests",
-            dependencies: ["MLXEdgeLLM"],
-            path: "Tests/MLXEdgeLLMTests"
+            name: "AuraCoreTests",
+            dependencies: ["AuraCore"],
+            path: "Tests/AuraCoreTests"
         )
     ]
 )
