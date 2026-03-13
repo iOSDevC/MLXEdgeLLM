@@ -120,17 +120,17 @@ public extension MLXEdgeLLM {
                         maxTokens: maxContextTokens
                     )
 
-                    // Derive system + last user prompt from context
-                    let sys = context.first(where: { $0.role == .system })?.content
-                    let userPrompt = context.last(where: { $0.role == .user })?.content ?? prompt
+                    // Build full multi-turn messages from context window
+                    let messages = context.map { turn -> [String: String] in
+                        ["role": turn.role.rawValue, "content": turn.content]
+                    }
 
-                    // Stream
+                    // Stream with full conversational context
                     var fullReply = ""
                     var lastLength = 0
 
                     _ = try await engine.generate(
-                        prompt: userPrompt,
-                        systemPrompt: sys,
+                        messages: messages,
                         maxTokens: maxTokens
                     ) { @MainActor partial in
                         let newText = String(partial.dropFirst(lastLength))
@@ -242,15 +242,14 @@ public extension MLXEdgeLLM {
     // MARK: - Internal helper
 
     /// Run inference with a pre-built messages array (used by history methods).
+    /// Forwards the full multi-turn context to the engine so the LLM sees
+    /// all prior exchanges, not just the system prompt and last user message.
     internal func chatWithMessages(
         _ messages: [[String: String]],
         maxTokens: Int
     ) async throws -> String {
-        let sys  = messages.first(where: { $0["role"] == "system" })?["content"]
-        let user = messages.last(where:  { $0["role"] == "user"   })?["content"] ?? ""
-        return try await engine.generate(
-            prompt: user,
-            systemPrompt: sys,
+        try await engine.generate(
+            messages: messages,
             maxTokens: maxTokens,
             onToken: { _ in }
         )

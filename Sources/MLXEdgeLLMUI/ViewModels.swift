@@ -69,7 +69,7 @@ final class TextChatViewModel: ObservableObject {
         streamingText = ""
         
         do {
-            let llm = try await ModelCache.shared.text(model) { [weak self] p in self?.progress = p }
+            let llm = try await ModelManager.shared.load(model) { [weak self] p in self?.progress = p }
             progress = ""
             
             for try await token in llm.stream(prompt, in: convID, store: store) {
@@ -109,7 +109,7 @@ final class VisionViewModel: ObservableObject {
         output = ""
         
         do {
-            let vlm = try await ModelCache.shared.vision(model) { [weak self] p in
+            let vlm = try await ModelManager.shared.load(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""
@@ -145,7 +145,7 @@ final class OCRViewModel: ObservableObject {
         output = ""
         
         do {
-            let ocr = try await ModelCache.shared.specialized(model) { [weak self] p in
+            let ocr = try await ModelManager.shared.load(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""

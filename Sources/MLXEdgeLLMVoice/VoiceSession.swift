@@ -221,12 +221,13 @@ public final class VoiceSession: NSObject, ObservableObject {
         silenceTimer = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .seconds(self.config.silenceThreshold))
+            // Check cancellation after sleep — cancel() reliably prevents pipeline launch
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard case .listening = self.state, !self.transcript.isEmpty else { return }
-                self.finishRecording()
-                Task { await self.runPipeline() }
-            }
+            guard case .listening = self.state, !self.transcript.isEmpty else { return }
+            self.finishRecording()
+            // Re-check after finishRecording in case cancel() was called concurrently
+            guard !Task.isCancelled else { return }
+            await self.runPipeline()
         }
     }
 
@@ -235,11 +236,10 @@ public final class VoiceSession: NSObject, ObservableObject {
             guard let self else { return }
             try? await Task.sleep(for: .seconds(self.config.maxRecordingDuration))
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard case .listening = self.state else { return }
-                self.finishRecording()
-                Task { await self.runPipeline() }
-            }
+            guard case .listening = self.state else { return }
+            self.finishRecording()
+            guard !Task.isCancelled else { return }
+            await self.runPipeline()
         }
     }
 

@@ -112,47 +112,54 @@ struct DocxDocumentParser: DocumentParser {
     }
     
     /// Minimal ZIP local file entry reader (no external deps).
+    /// Uses `withUnsafeBytes` to scan the Data buffer directly — no `[UInt8]` copy.
     private func extractZipEntry(named target: String, from data: Data) -> String? {
-        let bytes = [UInt8](data)
         let sig: [UInt8] = [0x50, 0x4B, 0x03, 0x04]   // PK local file header
-        var i = 0
-        
-        while i < bytes.count - 30 {
-            guard bytes[i..<i+4].elementsEqual(sig) else { i += 1; continue }
-            
-            let fnLen  = Int(bytes[i+26]) | Int(bytes[i+27]) << 8
-            let exLen  = Int(bytes[i+28]) | Int(bytes[i+29]) << 8
-            let compSz = Int(bytes[i+18]) | Int(bytes[i+19]) << 8
-            | Int(bytes[i+20]) << 16 | Int(bytes[i+21]) << 24
-            let nameStart = i + 30
-            let nameEnd   = nameStart + fnLen
-            
-            guard nameEnd <= bytes.count,
-                  let name = String(bytes: bytes[nameStart..<nameEnd], encoding: .utf8)
-            else { i += 1; continue }
-            
-            let dataStart = nameEnd + exLen
-            let dataEnd   = dataStart + compSz
-            guard dataEnd <= bytes.count else { i += 1; continue }
-            
-            if name == target {
-                // compression method: 0 = stored, 8 = deflate
-                let method = Int(bytes[i+8]) | Int(bytes[i+9]) << 8
-                let entryData = Data(bytes[dataStart..<dataEnd])
-                if method == 0 {
-                    return String(data: entryData, encoding: .utf8)
-                } else {
-                    // Deflate — use zlib via NSData
-                    var header = Data([0x78, 0x9C])
-                    header.append(entryData)
-                    if let decompressed = try? (header as NSData).decompressed(using: .zlib) {
-                        return String(data: decompressed as Data, encoding: .utf8)
+
+        return data.withUnsafeBytes { buffer -> String? in
+            guard let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return nil }
+            let count = buffer.count
+            var i = 0
+
+            while i < count - 30 {
+                guard base[i] == sig[0], base[i+1] == sig[1],
+                      base[i+2] == sig[2], base[i+3] == sig[3]
+                else { i += 1; continue }
+
+                let fnLen  = Int(base[i+26]) | Int(base[i+27]) << 8
+                let exLen  = Int(base[i+28]) | Int(base[i+29]) << 8
+                let compSz = Int(base[i+18]) | Int(base[i+19]) << 8
+                           | Int(base[i+20]) << 16 | Int(base[i+21]) << 24
+                let nameStart = i + 30
+                let nameEnd   = nameStart + fnLen
+                guard nameEnd <= count else { i += 1; continue }
+
+                let nameData = Data(bytes: base + nameStart, count: fnLen)
+                guard let name = String(data: nameData, encoding: .utf8) else { i += 1; continue }
+
+                let dataStart = nameEnd + exLen
+                let dataEnd   = dataStart + compSz
+                guard dataEnd <= count else { i += 1; continue }
+
+                if name == target {
+                    // compression method: 0 = stored, 8 = deflate
+                    let method = Int(base[i+8]) | Int(base[i+9]) << 8
+                    let entryData = Data(bytes: base + dataStart, count: compSz)
+                    if method == 0 {
+                        return String(data: entryData, encoding: .utf8)
+                    } else {
+                        // Deflate — use zlib via NSData
+                        var header = Data([0x78, 0x9C])
+                        header.append(entryData)
+                        if let decompressed = try? (header as NSData).decompressed(using: .zlib) {
+                            return String(data: decompressed as Data, encoding: .utf8)
+                        }
                     }
                 }
+                i = dataEnd
             }
-            i = dataEnd
+            return nil
         }
-        return nil
     }
     
     private func stripXMLTags(from xml: String) -> String {

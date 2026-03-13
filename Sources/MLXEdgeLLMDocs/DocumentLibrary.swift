@@ -282,10 +282,10 @@ public actor DocumentLibrary {
         var chunks = try await vectorStore.chunksForDocument(id: documentID)
         
         if includeEmbeddings {
-            try await vectorStore.loadEmbeddingCacheIfNeeded()
-            let cache = await vectorStore.embeddingCache
+            let chunkIDs = chunks.map(\.id)
+            let embeddings = try await vectorStore.embeddings(for: chunkIDs)
             for i in chunks.indices {
-                chunks[i].embedding = cache[chunks[i].id] ?? []
+                chunks[i].embedding = embeddings[chunks[i].id] ?? []
             }
         }
         

@@ -298,26 +298,32 @@ public actor AutoEmbeddingProvider: EmbeddingProvider {
 
 // MARK: - Vector Math
 
+import Accelerate
+
 enum VectorMath {
-    /// Cosine similarity between two vectors. Returns 0 if either is zero-length.
+    /// Cosine similarity between two vectors using Accelerate SIMD.
+    /// Returns 0 if either is zero-length.
     static func cosine(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
+        let n = vDSP_Length(a.count)
         var dot: Float = 0
-        var na:  Float = 0
-        var nb:  Float = 0
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
-            na  += a[i] * a[i]
-            nb  += b[i] * b[i]
-        }
+        var na: Float = 0
+        var nb: Float = 0
+        vDSP_dotpr(a, 1, b, 1, &dot, n)
+        vDSP_dotpr(a, 1, a, 1, &na,  n)
+        vDSP_dotpr(b, 1, b, 1, &nb,  n)
         let denom = sqrt(na) * sqrt(nb)
         return denom > 0 ? dot / denom : 0
     }
 
-    /// L2-normalize a vector in place.
+    /// L2-normalize a vector in place using Accelerate SIMD.
     static func normalize(_ v: inout [Float]) {
-        let norm = sqrt(v.reduce(0) { $0 + $1 * $1 })
+        let n = vDSP_Length(v.count)
+        var normSq: Float = 0
+        vDSP_dotpr(v, 1, v, 1, &normSq, n)
+        let norm = sqrt(normSq)
         guard norm > 0 else { return }
-        for i in 0..<v.count { v[i] /= norm }
+        var divisor = norm
+        vDSP_vsdiv(v, 1, &divisor, &v, 1, n)
     }
 }

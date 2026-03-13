@@ -115,6 +115,10 @@ public actor ConversationStore {
         if sqlite3_open(dbURL.path, &db) != SQLITE_OK {
             throw StoreError.cannotOpen(dbURL.path)
         }
+        // WAL mode enables concurrent reads during writes — prevents SQLITE_BUSY
+        // when the voice pipeline writes turns while the UI reads conversation lists.
+        sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA synchronous = NORMAL;", nil, nil, nil)
         try migrate()
     }
     
@@ -321,9 +325,18 @@ public actor ConversationStore {
     /// Full-text search across turn content using SQLite FTS5.
     public func search(_ query: String, limit: Int = 20) throws -> [Turn] {
         try ensureOpen()
+        // Sanitize for FTS5: wrap each token in double quotes to treat as literal,
+        // preventing FTS5 operators (NEAR, NOT, *, ^) from altering query semantics.
+        let safe = query
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.replacingOccurrences(of: "\"", with: "\"\"") }
+            .filter { !$0.isEmpty }
+            .map { "\"\($0)\"" }
+            .joined(separator: " OR ")
+        guard !safe.isEmpty else { return [] }
         return try self.query(
             "SELECT t.* FROM turns t JOIN turns_fts f ON t.id = f.id WHERE turns_fts MATCH ? ORDER BY rank LIMIT ?;",
-            bindings: [query, limit],
+            bindings: [safe, limit],
             map: rowToTurn
         )
     }
@@ -460,7 +473,16 @@ public actor ConversationStore {
                     sqlite3_bind_int64(stmt, idx, Int64(n))
                 case let n as Int64:
                     sqlite3_bind_int64(stmt, idx, n)
+                case let d as Double:
+                    sqlite3_bind_double(stmt, idx, d)
+                case let b as Bool:
+                    sqlite3_bind_int64(stmt, idx, b ? 1 : 0)
+                case let d as Data:
+                    d.withUnsafeBytes { ptr in
+                        sqlite3_bind_blob(stmt, idx, ptr.baseAddress, Int32(d.count), SQLITE_TRANSIENT)
+                    }
                 default:
+                    assertionFailure("ConversationStore.bind: unsupported type \(type(of: value)) at index \(i)")
                     sqlite3_bind_null(stmt, idx)
             }
         }

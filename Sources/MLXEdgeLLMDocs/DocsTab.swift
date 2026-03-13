@@ -494,11 +494,11 @@ final class DocsViewModel: ObservableObject {
     func setup() async {
         progress = "Loading model..."
         do {
-            // Reuse already-loaded models from other tabs via ModelCache
-            let llm = try await ModelCache.shared.text(.qwen3_1_7b) { [weak self] p in
+            // Reuse already-loaded models from other tabs via ModelManager
+            let llm = try await ModelManager.shared.load(.qwen3_1_7b) { [weak self] p in
                 Task { @MainActor [weak self] in self?.progress = p }
             }
-            let vlm = try await ModelCache.shared.specialized(.fastVLM_0_5b_fp16) { [weak self] p in
+            let vlm = try await ModelManager.shared.load(.fastVLM_0_5b_fp16) { [weak self] p in
                 Task { @MainActor [weak self] in self?.progress = p }
             }
             let embedder = AutoEmbeddingProvider()
