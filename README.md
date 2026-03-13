@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Docs/Media/logo.png" alt="AuraLocal" width="200">
+  <img src="https://github.com/iOSDevC/AuraLocal/blob/main/docs/media/logo.png" alt="AuraLocal" width="200">
 </p>
 
 # AuraLocal
