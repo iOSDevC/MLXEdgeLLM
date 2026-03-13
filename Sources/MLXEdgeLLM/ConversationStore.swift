@@ -553,9 +553,13 @@ public actor ConversationStore {
 
 // MARK: - Errors
 
+/// Errors thrown by ``ConversationStore`` when database operations fail.
 public enum StoreError: LocalizedError {
+    /// The SQLite database file at the given path could not be opened.
     case cannotOpen(String)
+    /// A raw SQLite error occurred.
     case sqliteError(String)
+    /// No conversation exists with the given ID.
     case conversationNotFound(UUID)
     
     public var errorDescription: String? {

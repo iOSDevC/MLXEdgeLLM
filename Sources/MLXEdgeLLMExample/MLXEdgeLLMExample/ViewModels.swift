@@ -63,15 +63,15 @@ final class TextChatViewModel: ObservableObject {
     func send(_ prompt: String, model: Model) async {
         if activeConversation == nil { await newConversation(model: model) }
         guard let convID = activeConversation?.id else { return }
-        
+
         messages.append(ChatMessage(id: UUID(), role: .user, text: prompt))
         isStreaming = true
         streamingText = ""
-        
+
         do {
-            let llm = try await MLXEdgeLLM.text(model) { [weak self] p in self?.progress = p }
+            let llm = try await ModelManager.shared.load(model) { [weak self] p in self?.progress = p }
             progress = ""
-            
+
             for try await token in llm.stream(prompt, in: convID, store: store) {
                 streamingText += token
             }
@@ -109,9 +109,9 @@ final class VisionViewModel: ObservableObject {
     func run(model: Model, image: PlatformImage, prompt: String, mode: MLXEdgeLLM.VisionRunMode) async {
         isLoading = true
         output = ""
-        
+
         do {
-            let vlm = try await MLXEdgeLLM.vision(model) { [weak self] p in
+            let vlm = try await ModelManager.shared.load(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""
@@ -146,9 +146,9 @@ final class OCRViewModel: ObservableObject {
     func run(model: Model, image: PlatformImage) async {
         isLoading = true
         output = ""
-        
+
         do {
-            let ocr = try await MLXEdgeLLM.specialized(model) { [weak self] p in
+            let ocr = try await ModelManager.shared.load(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""

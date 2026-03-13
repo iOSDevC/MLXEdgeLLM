@@ -43,10 +43,8 @@ struct ContentView: View {
 
 // MARK: - Models Tab
 
-public struct ModelsTab: View {
-    public init() {}
-    
-    public var body: some View {
+struct ModelsTab: View {
+    var body: some View {
         NavigationStack {
             List {
                 ModelSection(title: "Text",           icon: "text.bubble",    color: .green,  models: Model.textModels)

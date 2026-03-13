@@ -2,8 +2,21 @@ import Foundation
 
 // MARK: - Model
 
+/// A supported on-device model available for download and inference via MLX.
+///
+/// Each case maps to a Hugging Face repository (the raw value) and carries
+/// metadata such as ``purpose``, ``displayName``, ``approximateSizeMB``,
+/// and ``defaultDocumentPrompt``.
+///
+/// Models are grouped into three categories:
+/// - **Text** — language-only generation (e.g. ``qwen3_1_7b``).
+/// - **Vision** — multimodal image+text (e.g. ``qwen35_0_8b``).
+/// - **Vision Specialized** — OCR / document extraction (e.g. ``fastVLM_0_5b_fp16``).
+///
+/// Use the convenience collections ``textModels``, ``visionModels``, and
+/// ``specializedModels`` to list available models by category.
 public enum Model: String, CaseIterable, Sendable {
-    
+
     // MARK: Text
     case qwen3_0_6b   = "mlx-community/Qwen3-0.6B-4bit"
     case qwen3_1_7b   = "mlx-community/Qwen3-1.7B-4bit"
@@ -26,13 +39,20 @@ public enum Model: String, CaseIterable, Sendable {
     case graniteVision_3_3   = "mlx-community/granite-vision-3.2-2b-MLX"
     
     // MARK: - Purpose
-    
+
+    /// The functional category of a model, determining which ``MLXEdgeLLM``
+    /// factory method should be used to load it.
     public enum Purpose {
+        /// Language-only generation — load with ``MLXEdgeLLM/text(_:onProgress:)``.
         case text
+        /// Multimodal image+text — load with ``MLXEdgeLLM/vision(_:onProgress:)``.
         case vision
+        /// OCR / document extraction — load with ``MLXEdgeLLM/specialized(_:onProgress:)``.
+        /// When `docTags` is `true` the model outputs DocTags markup (e.g. Granite Docling).
         case visionSpecialized(docTags: Bool)
     }
     
+    /// The functional category of this model.
     public var purpose: Purpose {
         switch self {
             case .qwen3_0_6b, .qwen3_1_7b, .qwen3_4b,
@@ -54,6 +74,7 @@ public enum Model: String, CaseIterable, Sendable {
     
     // MARK: - Metadata
     
+    /// A human-readable name for display in UI (e.g. "Qwen3 1.7B").
     public var displayName: String {
         switch self {
             case .qwen3_0_6b:          return "Qwen3 0.6B"
@@ -74,6 +95,8 @@ public enum Model: String, CaseIterable, Sendable {
         }
     }
     
+    /// Approximate download size in megabytes. Use this to display storage
+    /// requirements before the user downloads a model.
     public var approximateSizeMB: Int {
         switch self {
             case .qwen3_0_6b:          return 400

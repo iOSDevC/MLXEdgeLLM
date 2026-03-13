@@ -76,7 +76,7 @@ final class VoiceTabViewModel: ObservableObject {
     func load(model: Model) async {
         llm = nil
         do {
-            llm = try await MLXEdgeLLM.text(model) { [weak self] p in
+            llm = try await ModelManager.shared.load(model) { [weak self] p in
                 self?.progress = p
             }
             progress = ""

@@ -4,6 +4,16 @@ Lightweight on-device LLM & VLM Swift package for iOS/macOS, powered by MLX. Run
 
 ---
 
+## v2.0 Highlights
+
+- **Unified model management** — `ModelManager.shared.load()` provides LRU caching, in-flight deduplication, and automatic memory-pressure eviction across all tabs.
+- **Swift 6 concurrency** — all public APIs are `@MainActor`-isolated or `Sendable`, with `actor`-based stores (`ConversationStore`, `DocumentLibrary`, `VectorStore`) for data-race safety.
+- **OOM prevention** — adaptive memory budget based on `os_proc_available_memory()` (iOS) or physical RAM (macOS), with `DispatchSource` memory-pressure listeners that proactively evict LRU models before the OS kills the app.
+- **Hybrid RAG pipeline** — FTS5 keyword pre-filter (top-20) followed by Accelerate-powered cosine re-ranking (top-5), all stored in a single SQLite database with BLOB vectors. Zero external dependencies.
+- **Strict access control** — internal implementation details (`MLXEngine`, `ParsedDocument`, `DocumentExporter`, `LanguageDetector`) are hidden from the public API surface. Consumers use typed facades only.
+
+---
+
 ## Requirements
 
 - iOS 17+ / macOS 14+ / visionOS 1+
@@ -523,6 +533,46 @@ print(model.purpose)           // .text
 
 ---
 
+## Model Management
+
+`ModelManager` is the recommended way to load models. It prevents redundant downloads, shares instances across tabs, and handles memory pressure automatically.
+
+```swift
+import MLXEdgeLLM
+
+// Load from anywhere — returns cached instance if already loaded
+let llm = try await ModelManager.shared.load(.qwen3_1_7b)
+
+// Observe per-model state in SwiftUI
+@ObservedObject var manager = ModelManager.shared
+
+switch manager.state(for: .qwen3_1_7b) {
+case .idle:                     // not loaded
+case .downloading(let progress): // "42% — Qwen3 1.7B"
+case .loading:                  // downloaded, loading into RAM
+case .ready:                    // ready for inference
+case .failed(let error):        // load failed
+}
+
+// Manual eviction
+ModelManager.shared.evict(.qwen3_1_7b)
+ModelManager.shared.evictAll()
+```
+
+### Memory Budget
+
+The LRU cache size adapts to the device:
+
+| Device RAM | Budget | Behavior |
+|-----------|--------|----------|
+| < 4 GB | 1 model | Evicts on every model switch |
+| 4–6 GB | 1–2 models | iPhone 15, base iPad |
+| 8+ GB | 2–4 models | iPad Pro, Mac |
+
+When the OS sends a memory warning (`DispatchSource.makeMemoryPressureSource` + `UIApplication.didReceiveMemoryWarningNotification`), all models except the most recently used are evicted immediately.
+
+---
+
 ## Entitlements
 
 Add to your `.entitlements` file for models larger than 500 MB:
@@ -531,6 +581,25 @@ Add to your `.entitlements` file for models larger than 500 MB:
 <key>com.apple.developer.kernel.increased-memory-limit</key>
 <true/>
 ```
+
+---
+
+## Concurrency Model
+
+MLXEdgeLLM is designed for Swift 6 strict concurrency:
+
+| Type | Isolation | Rationale |
+|------|-----------|-----------|
+| `MLXEdgeLLM` | `@MainActor` | Wraps MLX callbacks that must fire on main thread |
+| `ModelManager` | `@MainActor` | `ObservableObject` publishing `@Published` state |
+| `ConversationStore` | `actor` | Serializes SQLite reads/writes without locks |
+| `DocumentLibrary` | `actor` | Coordinates parsing, embedding, and vector store |
+| `VectorStore` | `actor` | Owns the SQLite connection for vector operations |
+| `VoiceSession` | `@MainActor` | Drives `AVAudioEngine` + `SFSpeechRecognizer` on main |
+| `TFIDFEmbeddingProvider` | `actor` | Mutable IDF state updated from concurrent indexing |
+| `Model`, `Turn`, `Conversation` | `Sendable` | Value types safe to pass across isolation boundaries |
+
+All streaming APIs use `AsyncThrowingStream` to bridge MLX's callback-based inference to Swift async/await.
 
 ---
 
@@ -584,4 +653,4 @@ All models download automatically on first use and are cached at:
 
 ## License
 
-Apache 2.0
+MIT

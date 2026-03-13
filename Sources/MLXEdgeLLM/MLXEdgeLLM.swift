@@ -37,7 +37,7 @@ public final class MLXEdgeLLM {
     
     // MARK: - Properties
     
-    public let engine: MLXEngine
+    let engine: MLXEngine
     public let model: Model
     
     // MARK: - Private init

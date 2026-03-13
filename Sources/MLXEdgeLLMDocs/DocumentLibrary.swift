@@ -3,6 +3,7 @@ import MLXEdgeLLM
 
 // MARK: - IndexedDocument
 
+/// A document that has been parsed, chunked, and embedded into the vector store.
 public struct IndexedDocument: Identifiable, Sendable {
     public let id: UUID
     public let title: String
@@ -13,16 +14,25 @@ public struct IndexedDocument: Identifiable, Sendable {
 
 // MARK: - DocumentAnswer
 
+/// The result of a RAG query against the ``DocumentLibrary``.
+///
+/// Contains the LLM-generated answer together with the source chunks
+/// that were used as grounding context, ranked by relevance score.
 public struct DocumentAnswer: Sendable {
-    /// LLM-generated answer.
+    /// LLM-generated answer grounded in the retrieved document chunks.
     public let text: String
     /// Source chunks used to generate the answer, ranked by relevance.
     public let sources: [SourceReference]
-    
+
+    /// A reference to a specific document chunk that contributed to an answer.
     public struct SourceReference: Sendable {
+        /// Title of the source document.
         public let documentTitle: String
+        /// 1-based page number (0 if the format has no page concept).
         public let pageNumber: Int
-        public let excerpt: String      // first 200 chars of the chunk
+        /// First 200 characters of the chunk text.
+        public let excerpt: String
+        /// Cosine similarity score (0–1) between the query and this chunk.
         public let score: Float
     }
 }
@@ -83,6 +93,9 @@ public actor DocumentLibrary {
     
     // MARK: - Configuration
     
+    /// Set the embedding provider and LLM instances used for indexing and querying.
+    ///
+    /// Must be called before ``add(url:onProgress:)`` or ``ask(_:topK:maxContextTokens:systemPrompt:)``.
     public func configure(
         embeddingProvider: any EmbeddingProvider,
         llm: MLXEdgeLLM,
@@ -95,10 +108,12 @@ public actor DocumentLibrary {
     
     // MARK: - Lifecycle
     
+    /// Open the underlying SQLite vector store. Must be called once before any indexing or querying.
     public func open() async throws {
         try await vectorStore.open()
     }
-    
+
+    /// Close the vector store database connection.
     public func close() async {
         await vectorStore.close()
     }
@@ -241,6 +256,7 @@ public actor DocumentLibrary {
     
     // MARK: - Library management
     
+    /// List all documents currently indexed in the library.
     public func allDocuments() async throws -> [IndexedDocument] {
         try await vectorStore.allDocuments().map { row in
             IndexedDocument(
@@ -253,6 +269,7 @@ public actor DocumentLibrary {
         }
     }
     
+    /// Remove a document and all its chunks from the library.
     public func removeDocument(id: UUID) async throws {
         try await vectorStore.deleteDocument(id: id)
     }
@@ -345,8 +362,16 @@ public actor DocumentLibrary {
 
 // MARK: - DocumentChat
 
-/// Stateful chat session grounded in a DocumentLibrary.
-/// Maintains conversation history via ConversationStore.
+/// A stateful, observable chat session grounded in a ``DocumentLibrary``.
+///
+/// Each question is answered using RAG retrieval, and both the question
+/// and answer are persisted to ``ConversationStore`` for history.
+///
+/// ```swift
+/// let chat = DocumentChat(library: library, llm: llm)
+/// let answer = try await chat.send("What is the contract amount?")
+/// // chat.messages now contains the user question and the grounded answer
+/// ```
 @MainActor
 public final class DocumentChat: ObservableObject {
     
@@ -413,6 +438,7 @@ public final class DocumentChat: ObservableObject {
 
 // MARK: - DocumentChatMessage
 
+/// A single message in a ``DocumentChat`` session — either a user question or a grounded assistant answer.
 public struct DocumentChatMessage: Identifiable, Sendable {
     public let id = UUID()
     public enum Role { case user, assistant }

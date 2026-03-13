@@ -4,6 +4,10 @@ import MLXEdgeLLM
 
 // MARK: - DocsTab
 
+/// Drop-in SwiftUI tab for document management and RAG chat.
+///
+/// Provides file import, indexing progress, document list with swipe-to-export/delete,
+/// and a grounded chat sheet powered by ``DocumentLibrary``.
 public struct DocsTab: View {
     @StateObject private var vm = DocsViewModel()
     @State private var showFilePicker  = false

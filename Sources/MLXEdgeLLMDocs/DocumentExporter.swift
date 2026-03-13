@@ -3,6 +3,7 @@ import Compression
 
 // MARK: - ExportFormat
 
+/// Output format for ``DocumentLibrary/export(documentID:to:format:includeEmbeddings:)``.
 public enum ExportFormat: String, CaseIterable {
     /// One JSON object per line, GZip compressed. Compatible with LangChain, HuggingFace, LlamaIndex.
     case jsonlGz = "jsonl.gz"
@@ -35,10 +36,10 @@ private struct ExportRecord: Encodable {
 
 /// Exports a single document's chunks to JSONL or JSONL.GZ using streaming writes.
 /// Never loads all chunks into memory at once — writes each record as it is read.
-public struct DocumentExporter {
-    
-    // MARK: - Public API
-    
+struct DocumentExporter {
+
+    // MARK: - API
+
     /// Export one document to a `.jsonl` or `.jsonl.gz` file.
     ///
     /// - Parameters:
@@ -49,7 +50,7 @@ public struct DocumentExporter {
     ///   - includeEmbeddings: Whether to include the float vector in each record.
     /// - Returns: URL of the written file.
     @discardableResult
-    public static func export(
+    static func export(
         document:          IndexedDocument,
         chunks:            [DocumentChunk],
         to destination:    URL,

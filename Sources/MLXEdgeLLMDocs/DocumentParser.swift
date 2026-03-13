@@ -10,16 +10,16 @@ import AppKit
 
 // MARK: - ParsedDocument
 
-public struct ParsedDocument: Sendable {
-    public let url: URL
-    public let title: String
-    public let pages: [ParsedPage]
-    public var fullText: String { pages.map(\.text).joined(separator: "\n\n") }
+struct ParsedDocument: Sendable {
+    let url: URL
+    let title: String
+    let pages: [ParsedPage]
+    var fullText: String { pages.map(\.text).joined(separator: "\n\n") }
 }
 
-public struct ParsedPage: Sendable {
-    public let pageNumber: Int   // 1-based, 0 = no page concept
-    public let text: String
+struct ParsedPage: Sendable {
+    let pageNumber: Int   // 1-based, 0 = no page concept
+    let text: String
 }
 
 // MARK: - DocumentParser protocol
@@ -237,10 +237,15 @@ struct ImageDocumentParser: DocumentParser {
 
 // MARK: - DocumentError
 
+/// Errors thrown by the document parsing, embedding, and indexing pipeline.
 public enum DocumentError: LocalizedError {
+    /// The file extension is not supported by any registered parser.
     case unsupportedFormat(String)
+    /// The document could not be parsed (corrupted file, missing content, etc.).
     case parseFailed(String)
+    /// The embedding provider failed to produce vectors for the given text.
     case embeddingFailed(String)
+    /// ``DocumentLibrary/open()`` has not been called yet, or ``DocumentLibrary/configure(embeddingProvider:llm:visionLLM:)`` is missing.
     case libraryNotReady
     
     public var errorDescription: String? {

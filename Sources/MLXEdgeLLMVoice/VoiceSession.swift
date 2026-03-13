@@ -26,11 +26,17 @@ public final class VoiceSession: NSObject, ObservableObject {
 
     // MARK: - State
 
+    /// The current phase of the voice pipeline.
     public enum State: Equatable {
+        /// No active recording or playback.
         case idle
-        case listening                   // recording + transcribing
-        case thinking(partial: String)   // LLM streaming
-        case speaking(sentence: String)  // TTS playing
+        /// Recording audio and transcribing via on-device `SFSpeechRecognizer`.
+        case listening
+        /// LLM is generating a response; `partial` contains tokens received so far.
+        case thinking(partial: String)
+        /// TTS is playing the current `sentence`.
+        case speaking(sentence: String)
+        /// An error occurred during the pipeline.
         case error(String)
     }
 
@@ -40,6 +46,7 @@ public final class VoiceSession: NSObject, ObservableObject {
 
     // MARK: - Config
 
+    /// Configuration for the voice pipeline (silence thresholds, locale, TTS rate, etc.).
     public struct Config {
         /// Silence duration (seconds) that triggers end-of-utterance.
         public var silenceThreshold: TimeInterval = 1.4
@@ -367,7 +374,7 @@ extension VoiceSession: AVSpeechSynthesizerDelegate {
 // MARK: - LanguageDetector
 
 /// Lightweight language detection using NLLanguageRecognizer.
-enum LanguageDetector {
+private enum LanguageDetector {
     static func detect(_ text: String) -> String {
         guard !text.isEmpty else { return deviceLanguage() }
 

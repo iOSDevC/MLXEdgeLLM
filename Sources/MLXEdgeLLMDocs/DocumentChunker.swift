@@ -2,6 +2,10 @@ import Foundation
 
 // MARK: - DocumentChunk
 
+/// A text fragment from an indexed document, ready for embedding and retrieval.
+///
+/// Chunks are created during ``DocumentLibrary/add(url:onProgress:)`` and
+/// stored in the vector store alongside their embedding vectors.
 public struct DocumentChunk: Identifiable, Sendable {
     public let id: UUID
     public let documentID: UUID
@@ -136,6 +140,12 @@ struct DocumentChunker {
 
 // MARK: - EmbeddingProvider
 
+/// Protocol for converting text into fixed-dimension float vectors.
+///
+/// Implement this protocol to plug in your own embedding backend
+/// (e.g. OpenAI, Cohere, or a local MLX model). The built-in
+/// ``TFIDFEmbeddingProvider`` and ``AutoEmbeddingProvider`` work
+/// fully offline with no downloads.
 public protocol EmbeddingProvider: Sendable {
     /// Embed a single string. Returns a normalized float vector.
     func embed(_ text: String) async throws -> [Float]
@@ -156,11 +166,12 @@ public extension EmbeddingProvider {
 }
 
 // MARK: - TFIDFEmbeddingProvider
-//
-// Purely local, zero-download sparse embedding using TF-IDF term weighting.
-// Works offline immediately with no external dependencies.
-// Provides meaningful cosine similarity for keyword-rich documents.
 
+/// Purely local, zero-download sparse embedding using TF-IDF term weighting.
+///
+/// Produces 4096-dimensional sparse vectors using a DJB2 hash to map tokens
+/// to buckets. IDF weights are updated incrementally via ``updateCorpus(texts:)``.
+/// Runs entirely on-device with no network requests.
 public actor TFIDFEmbeddingProvider: EmbeddingProvider {
 
     /// Vocabulary size — fixed dimension for all vectors.
@@ -266,11 +277,12 @@ public actor TFIDFEmbeddingProvider: EmbeddingProvider {
 }
 
 // MARK: - AutoEmbeddingProvider
-//
-// Wrapper around TFIDFEmbeddingProvider.
-// Designed to add MLX dense embeddings in the future when mlx-swift-lm
-// exposes a public TextEmbedder API.
 
+/// Recommended default embedding provider for ``DocumentLibrary``.
+///
+/// Currently wraps ``TFIDFEmbeddingProvider`` for fully offline operation.
+/// Designed to transparently upgrade to MLX-based dense embeddings when
+/// `mlx-swift-lm` exposes a public `TextEmbedder` API.
 public actor AutoEmbeddingProvider: EmbeddingProvider {
 
     public nonisolated let dimensions = TFIDFEmbeddingProvider.vocabSize

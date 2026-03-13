@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-public extension SwiftUI.Color {
+extension SwiftUI.Color {
     static var outputBackground: Color {
 #if canImport(UIKit)
         return Color(.systemGroupedBackground)

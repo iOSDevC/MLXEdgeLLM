@@ -8,6 +8,10 @@ import AppKit
 
 // MARK: - Platform
 
+/// A cross-platform image type — `UIImage` on iOS/tvOS/visionOS, `NSImage` on macOS.
+///
+/// All MLXEdgeLLM vision APIs accept and return `PlatformImage` so that
+/// callers don't need platform-conditional code.
 #if canImport(UIKit)
 public typealias PlatformImage = UIImage
 #elseif canImport(AppKit)
@@ -17,6 +21,7 @@ public typealias PlatformImage = NSImage
 // MARK: - SwiftUI extensions
 
 public extension SwiftUI.Image {
+    /// Create a SwiftUI `Image` from a ``PlatformImage``.
     init(platformImage: PlatformImage) {
 #if canImport(UIKit)
         self.init(uiImage: platformImage)

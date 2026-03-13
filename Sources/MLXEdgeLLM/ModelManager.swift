@@ -7,14 +7,22 @@ import UIKit
 
 // MARK: - ModelLoadState
 
-/// Observable load state for a single model — used by UI to show progress.
+/// Observable load state for a single model, published by ``ModelManager``.
+///
+/// Use ``isActive`` to determine whether a progress indicator should be shown.
 public enum ModelLoadState: Equatable {
+    /// No load has been requested yet (or the model was evicted).
     case idle
+    /// The model weights are being downloaded; `progress` contains a human-readable status string.
     case downloading(progress: String)
+    /// Download complete — the model is being loaded into memory.
     case loading
+    /// The model is loaded and ready for inference.
     case ready
+    /// Loading failed with the given error description.
     case failed(String)
 
+    /// `true` when the model is actively downloading or loading.
     public var isActive: Bool {
         switch self {
             case .downloading, .loading: return true
@@ -24,17 +32,27 @@ public enum ModelLoadState: Equatable {
 }
 
 // MARK: - ModelManager
-//
-// Single point of control for all MLX model loading across the app.
-//
-// - Detects available RAM and decides how many models to keep in memory (LRU).
-// - Deduplicates concurrent loads of the same model via in-flight Task map.
-// - Publishes per-model load state so any SwiftUI view can show progress.
-//
-// Usage:
-//   let llm = try await ModelManager.shared.load(.qwen3_1_7b)
-//   @ObservedObject var mm = ModelManager.shared  →  mm.state(for: model)
 
+/// Centralized model lifecycle manager with LRU caching and memory-pressure eviction.
+///
+/// `ModelManager` is the recommended way to load models across your app.
+/// It provides three key guarantees:
+///
+/// 1. **LRU cache** — keeps up to ``memoryBudget`` models in RAM,
+///    automatically evicting the least-recently-used when the budget is exceeded.
+/// 2. **In-flight deduplication** — concurrent requests for the same model
+///    share a single download/load `Task`, avoiding redundant work.
+/// 3. **Memory-pressure handling** — listens for OS memory warnings
+///    (`DispatchSource` + `UIApplication` notifications) and evicts models proactively.
+///
+/// ```swift
+/// // Load (downloads if needed, returns from cache otherwise)
+/// let llm = try await ModelManager.shared.load(.qwen3_1_7b)
+///
+/// // Observe per-model state in SwiftUI
+/// @ObservedObject var manager = ModelManager.shared
+/// let state = manager.state(for: .qwen3_1_7b) // .idle | .downloading | .loading | .ready | .failed
+/// ```
 @MainActor
 public final class ModelManager: ObservableObject {
 

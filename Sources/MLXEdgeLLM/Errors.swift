@@ -1,9 +1,12 @@
 import Foundation
 
-/// Errores de MLXEdgeLLM
+/// Errors thrown by the MLXEdgeLLM inference pipeline.
 public enum MLXEdgeLLMError: LocalizedError {
+    /// The model has not been loaded yet — call a factory method or ``ModelManager/load(_:onProgress:)`` first.
     case modelNotLoaded
+    /// The provided image could not be converted to the format required by the vision model.
     case imageProcessingFailed
+    /// The model returned an unexpected or invalid result.
     case invalidResponse(String)
     
     public var errorDescription: String? {

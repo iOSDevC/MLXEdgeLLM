@@ -79,7 +79,8 @@ let package = Package(
                 "MLXEdgeLLMDocs",
                 "MLXEdgeLLMAppleIntelligence",
             ],
-            path: "Sources/MLXEdgeLLMExample"
+            path: "Sources/MLXEdgeLLMExample",
+            exclude: ["Package.swift"]
         ),
         
         // MARK: - Tests
